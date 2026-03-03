@@ -15,34 +15,20 @@ async function startServer() {
     
     // Initialize Database
     db.exec(`
-      CREATE TABLE IF NOT EXISTS businesses (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        owner_id INTEGER,
-        plan_name TEXT DEFAULT 'Starter',
-        employee_limit INTEGER DEFAULT 3,
-        activation_key TEXT,
-        status TEXT DEFAULT 'active',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-
       CREATE TABLE IF NOT EXISTS employees (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        business_id INTEGER,
         name TEXT NOT NULL,
         mobile TEXT NOT NULL UNIQUE,
         password TEXT NOT NULL,
-        role TEXT DEFAULT 'employee', -- master, owner, sub-admin, employee
+        role TEXT DEFAULT 'employee', -- owner, sub-admin, employee
         salary REAL NOT NULL,
         shift_start TEXT NOT NULL,
         shift_end TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (business_id) REFERENCES businesses(id)
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE IF NOT EXISTS attendance (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        business_id INTEGER,
         employee_id INTEGER NOT NULL,
         date TEXT NOT NULL,
         check_in TEXT,
@@ -52,47 +38,34 @@ async function startServer() {
         latitude REAL,
         longitude REAL,
         selfie_url TEXT,
-        FOREIGN KEY (employee_id) REFERENCES employees(id),
-        FOREIGN KEY (business_id) REFERENCES businesses(id)
+        FOREIGN KEY (employee_id) REFERENCES employees(id)
       );
 
       CREATE TABLE IF NOT EXISTS leaves (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        business_id INTEGER,
         employee_id INTEGER NOT NULL,
         start_date TEXT NOT NULL,
         end_date TEXT NOT NULL,
         reason TEXT,
         status TEXT DEFAULT 'pending', -- pending, approved, rejected
-        FOREIGN KEY (employee_id) REFERENCES employees(id),
-        FOREIGN KEY (business_id) REFERENCES businesses(id)
+        FOREIGN KEY (employee_id) REFERENCES employees(id)
       );
 
       CREATE TABLE IF NOT EXISTS settings (
-        business_id INTEGER,
-        key TEXT,
-        value TEXT,
-        PRIMARY KEY (business_id, key),
-        FOREIGN KEY (business_id) REFERENCES businesses(id)
+        key TEXT PRIMARY KEY,
+        value TEXT
       );
 
-      -- Insert Master Admin
-      INSERT OR IGNORE INTO employees (name, mobile, password, role, salary, shift_start, shift_end)
-      VALUES ('Master Admin', '9999999999', 'masteradmin', 'master', 0, '00:00', '00:00');
+      -- Default Settings
+      INSERT OR IGNORE INTO settings (key, value) VALUES ('business_name', 'Attendora');
+      INSERT OR IGNORE INTO settings (key, value) VALUES ('employee_limit', '10');
+      INSERT OR IGNORE INTO settings (key, value) VALUES ('salary_rule', 'monthly');
+      INSERT OR IGNORE INTO settings (key, value) VALUES ('late_penalty', '0');
+      INSERT OR IGNORE INTO settings (key, value) VALUES ('whatsapp_number', '');
 
-      -- Default Business for existing owner
-      INSERT OR IGNORE INTO businesses (id, name, plan_name, employee_limit) VALUES (1, 'Attendora', 'Pro', 20);
-      
-      -- Update existing owner if exists
-      UPDATE employees SET business_id = 1 WHERE mobile = '0000000000';
-      INSERT OR IGNORE INTO employees (name, mobile, password, role, salary, shift_start, shift_end, business_id)
-      VALUES ('Admin Owner', '0000000000', 'admin123', 'owner', 0, '00:00', '00:00', 1);
-      
-      -- Default Settings for Business 1
-      INSERT OR IGNORE INTO settings (business_id, key, value) VALUES (1, 'business_name', 'Attendora');
-      INSERT OR IGNORE INTO settings (business_id, key, value) VALUES (1, 'employee_limit', '20');
-      INSERT OR IGNORE INTO settings (business_id, key, value) VALUES (1, 'salary_rule', 'monthly');
-      INSERT OR IGNORE INTO settings (business_id, key, value) VALUES (1, 'late_penalty', '0');
+      -- Insert default owner if not exists
+      INSERT OR IGNORE INTO employees (name, mobile, password, role, salary, shift_start, shift_end)
+      VALUES ('Admin Owner', '0000000000', 'admin123', 'owner', 0, '00:00', '00:00');
     `);
   } catch (dbErr) {
     console.error("Database failed to initialize:", dbErr);
@@ -117,85 +90,27 @@ async function startServer() {
     res.json(user);
   });
 
-  // Master Admin Routes
-  app.get("/api/master/stats", (req, res) => {
-    const totalBusinesses = db.prepare("SELECT COUNT(*) as count FROM businesses").get().count;
-    const totalEmployees = db.prepare("SELECT COUNT(*) as count FROM employees WHERE role != 'master'").get().count;
-    const activeBusinesses = db.prepare("SELECT COUNT(*) as count FROM businesses WHERE status = 'active'").get().count;
-    const adminCount = db.prepare("SELECT COUNT(*) as count FROM employees WHERE role = 'owner'").get().count;
-    const subAdminCount = db.prepare("SELECT COUNT(*) as count FROM employees WHERE role = 'sub-admin'").get().count;
-    
-    res.json({
-      totalBusinesses,
-      totalEmployees,
-      activeBusinesses,
-      adminCount,
-      subAdminCount
-    });
-  });
-
-  app.get("/api/master/businesses", (req, res) => {
-    const businesses = db.prepare(`
-      SELECT b.*, e.name as owner_name, e.mobile as owner_mobile,
-      (SELECT COUNT(*) FROM employees WHERE business_id = b.id) as employee_count
-      FROM businesses b
-      LEFT JOIN employees e ON b.owner_id = e.id
-    `).all();
-    res.json(businesses);
-  });
-
-  app.post("/api/master/generate-key", (req, res) => {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let key = "";
-    const length = Math.floor(Math.random() * 6) + 15; // 15 to 20
-    for (let i = 0; i < length; i++) {
-      key += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    res.json({ key });
-  });
-
-  // Business Routes
-  app.get("/api/business/info/:business_id", (req, res) => {
-    const business = db.prepare("SELECT * FROM businesses WHERE id = ?").get(req.params.business_id);
-    res.json(business);
-  });
-
-  app.post("/api/business/select-plan", (req, res) => {
-    const { business_id, plan_name, employee_limit } = req.body;
-    db.prepare("UPDATE businesses SET plan_name = ?, employee_limit = ? WHERE id = ?")
-      .run(plan_name, employee_limit, business_id);
-    
-    // Update settings as well
-    db.prepare("INSERT OR REPLACE INTO settings (business_id, key, value) VALUES (?, 'employee_limit', ?)")
-      .run(business_id, String(employee_limit));
-      
-    res.json({ success: true });
-  });
-
   // Employees
   app.get("/api/employees", (req, res) => {
-    const { business_id } = req.query;
-    const employees = db.prepare("SELECT * FROM employees WHERE business_id = ? AND role != 'owner'").all(business_id);
+    const employees = db.prepare("SELECT * FROM employees WHERE role != 'owner'").all();
     res.json(employees);
   });
 
   app.post("/api/employees", (req, res) => {
-    const { name, mobile, password, role, salary, shift_start, shift_end, business_id } = req.body;
+    const { name, mobile, password, role, salary, shift_start, shift_end } = req.body;
     
-    if (!business_id) return res.status(400).json({ error: "Business ID required" });
-
     // Check limit
-    const business = db.prepare("SELECT employee_limit FROM businesses WHERE id = ?").get(business_id);
-    const count = db.prepare("SELECT COUNT(*) as count FROM employees WHERE business_id = ? AND role != 'owner'").get(business_id).count;
+    const limit = parseInt(db.prepare("SELECT value FROM settings WHERE key = 'employee_limit'").get().value);
+    const count = db.prepare("SELECT COUNT(*) as count FROM employees WHERE role != 'owner'").get().count;
     
-    if (count >= business.employee_limit) {
-      return res.status(403).json({ error: `Employee limit (${business.employee_limit}) reached for your plan. Please upgrade.` });
+    if (count >= limit) {
+      return res.status(403).json({ error: "Employee limit reached. Please upgrade your plan." });
     }
 
     try {
       const info = db.prepare(
-        "INSERT INTO employees (name, mobile, password, role, salary, shift_start, shift_end, business_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(name, mobile, password || '123456', role || 'employee', salary, shift_start, shift_end, business_id);
+        "INSERT INTO employees (name, mobile, password, role, salary, shift_start, shift_end) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(name, mobile, password || '123456', role || 'employee', salary, shift_start, shift_end);
       res.json({ id: info.lastInsertRowid });
     } catch (e) {
       res.status(400).json({ error: "Mobile number already exists" });
@@ -217,19 +132,18 @@ async function startServer() {
 
   // Attendance
   app.get("/api/attendance/today", (req, res) => {
-    const { business_id } = req.query;
     const date = new Date().toISOString().split("T")[0];
     const attendance = db.prepare(`
       SELECT a.*, e.name, e.shift_start 
       FROM attendance a 
       JOIN employees e ON a.employee_id = e.id 
-      WHERE a.date = ? AND a.business_id = ?
-    `).all(date, business_id);
+      WHERE a.date = ?
+    `).all(date);
     res.json(attendance);
   });
 
   app.post("/api/attendance/check-in", (req, res) => {
-    const { employee_id, time, is_late, latitude, longitude, selfie_url, date: manualDate, business_id } = req.body;
+    const { employee_id, time, is_late, latitude, longitude, selfie_url, date: manualDate } = req.body;
     const date = manualDate || new Date().toISOString().split("T")[0];
     
     // Check if already checked in
@@ -239,8 +153,8 @@ async function startServer() {
     }
 
     db.prepare(
-      "INSERT INTO attendance (employee_id, date, check_in, is_late, status, latitude, longitude, selfie_url, business_id) VALUES (?, ?, ?, ?, 'present', ?, ?, ?, ?)"
-    ).run(employee_id, date, time, is_late ? 1 : 0, latitude, longitude, selfie_url, business_id);
+      "INSERT INTO attendance (employee_id, date, check_in, is_late, status, latitude, longitude, selfie_url) VALUES (?, ?, ?, ?, 'present', ?, ?, ?)"
+    ).run(employee_id, date, time, is_late ? 1 : 0, latitude, longitude, selfie_url);
     res.json({ success: true });
   });
 
@@ -254,14 +168,14 @@ async function startServer() {
   });
 
   app.get("/api/attendance/report", (req, res) => {
-    const { month, year, employee_id, business_id } = req.query;
+    const { month, year, employee_id } = req.query;
     let query = `
       SELECT a.*, e.name, e.salary, e.shift_start, e.shift_end
       FROM attendance a 
       JOIN employees e ON a.employee_id = e.id 
-      WHERE a.date LIKE ? AND a.business_id = ?
+      WHERE a.date LIKE ?
     `;
-    const params = [`${year}-${month}%`, business_id];
+    const params = [`${year}-${month}%`];
     
     if (employee_id) {
       query += " AND a.employee_id = ?";
@@ -286,16 +200,15 @@ async function startServer() {
 
   // Leaves
   app.get("/api/leaves", (req, res) => {
-    const { employee_id, business_id } = req.query;
+    const { employee_id } = req.query;
     let query = `
       SELECT l.*, e.name 
       FROM leaves l 
       JOIN employees e ON l.employee_id = e.id
-      WHERE l.business_id = ?
     `;
-    const params = [business_id];
+    const params = [];
     if (employee_id) {
-      query += " AND l.employee_id = ?";
+      query += " WHERE l.employee_id = ?";
       params.push(employee_id);
     }
     const leaves = db.prepare(query).all(...params);
@@ -303,10 +216,10 @@ async function startServer() {
   });
 
   app.post("/api/leaves", (req, res) => {
-    const { employee_id, start_date, end_date, reason, business_id } = req.body;
+    const { employee_id, start_date, end_date, reason } = req.body;
     db.prepare(
-      "INSERT INTO leaves (employee_id, start_date, end_date, reason, business_id) VALUES (?, ?, ?, ?, ?)"
-    ).run(employee_id, start_date, end_date, reason, business_id);
+      "INSERT INTO leaves (employee_id, start_date, end_date, reason) VALUES (?, ?, ?, ?)"
+    ).run(employee_id, start_date, end_date, reason);
     res.json({ success: true });
   });
 
@@ -318,47 +231,45 @@ async function startServer() {
 
   // Dashboard Stats
   app.get("/api/stats", (req, res) => {
-    const { business_id } = req.query;
     const date = new Date().toISOString().split("T")[0];
     
-    // Auto-mark absent for yesterday
+    // Auto-mark absent for yesterday if not already done
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yDate = yesterday.toISOString().split("T")[0];
     
-    const employees = db.prepare("SELECT id FROM employees WHERE business_id = ? AND role != 'owner'").all(business_id);
+    const employees = db.prepare("SELECT id FROM employees WHERE role != 'owner'").all();
     for (const emp of employees) {
       const existing = db.prepare("SELECT id FROM attendance WHERE employee_id = ? AND date = ?").get(emp.id, yDate);
       if (!existing) {
-        db.prepare("INSERT INTO attendance (employee_id, date, status, business_id) VALUES (?, ?, 'absent', ?)").run(emp.id, yDate, business_id);
+        db.prepare("INSERT INTO attendance (employee_id, date, status) VALUES (?, ?, 'absent')").run(emp.id, yDate);
       }
     }
 
-    const totalEmployees = db.prepare("SELECT COUNT(*) as count FROM employees WHERE business_id = ?").get(business_id).count;
-    const presentToday = db.prepare("SELECT COUNT(*) as count FROM attendance WHERE date = ? AND status = 'present' AND business_id = ?").get(date, business_id).count;
-    const lateToday = db.prepare("SELECT COUNT(*) as count FROM attendance WHERE date = ? AND is_late = 1 AND business_id = ?").get(date, business_id).count;
+    const totalEmployees = db.prepare("SELECT COUNT(*) as count FROM employees").get().count;
+    const presentToday = db.prepare("SELECT COUNT(*) as count FROM attendance WHERE date = ? AND status = 'present'").get(date).count;
+    const lateToday = db.prepare("SELECT COUNT(*) as count FROM attendance WHERE date = ? AND is_late = 1").get(date).count;
     
     res.json({
       totalEmployees,
       presentToday,
-      absentToday: Math.max(0, totalEmployees - presentToday),
+      absentToday: totalEmployees - presentToday,
       lateToday
     });
   });
 
   // Settings
   app.get("/api/settings", (req, res) => {
-    const { business_id } = req.query;
-    const settings = db.prepare("SELECT * FROM settings WHERE business_id = ?").all(business_id);
+    const settings = db.prepare("SELECT * FROM settings").all();
     const obj: any = {};
     settings.forEach((s: any) => obj[s.key] = s.value);
     res.json(obj);
   });
 
   app.post("/api/settings", (req, res) => {
-    const { business_id, ...settings } = req.body;
+    const settings = req.body;
     for (const key in settings) {
-      db.prepare("INSERT OR REPLACE INTO settings (business_id, key, value) VALUES (?, ?, ?)").run(business_id, key, String(settings[key]));
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, String(settings[key]));
     }
     res.json({ success: true });
   });
