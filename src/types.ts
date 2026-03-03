@@ -1,8 +1,9 @@
 export type Language = 'en' | 'gu';
-export type UserRole = 'owner' | 'sub-admin' | 'employee';
+export type UserRole = 'master' | 'owner' | 'sub-admin' | 'employee';
 
 export interface Employee {
   id: number;
+  business_id?: number;
   name: string;
   mobile: string;
   password?: string;
@@ -10,6 +11,19 @@ export interface Employee {
   salary: number;
   shift_start: string;
   shift_end: string;
+}
+
+export interface Business {
+  id: number;
+  name: string;
+  owner_id: number;
+  plan_name: string;
+  employee_limit: number;
+  activation_key: string;
+  status: 'active' | 'inactive';
+  owner_name?: string;
+  owner_mobile?: string;
+  employee_count?: number;
 }
 
 export interface AttendanceRecord {
@@ -128,7 +142,26 @@ export const translations = {
     whatsappExport: "Share on WhatsApp",
     monthly: "Monthly",
     hourly: "Hourly",
-    salarySummary: "Salary Summary"
+    salarySummary: "Salary Summary",
+    masterDashboard: "Master Admin Panel",
+    totalBusinesses: "Total Businesses",
+    activeBusinesses: "Active Businesses",
+    adminCount: "Admin Count",
+    subAdminCount: "Sub Admin Count",
+    generateKey: "Generate Product Key",
+    activationKey: "Activation Key",
+    selectPlan: "Select Your Plan",
+    starterPlan: "Starter Pack",
+    growthPlan: "Growth Pack",
+    proPlan: "Pro Pack",
+    free: "Free",
+    upTo3: "Up to 3 Employees",
+    upTo10: "Up to 10 Employees",
+    upTo20: "Up to 20 Employees",
+    upgrade: "Upgrade Now",
+    active: "Active",
+    inactive: "Inactive",
+    businessList: "Business List"
   },
   gu: {
     title: "Attendora",
@@ -213,6 +246,25 @@ export const translations = {
     whatsappExport: "WhatsApp પર શેર કરો",
     monthly: "માસિક",
     hourly: "કલાકદીઠ",
-    salarySummary: "પગાર સારાંશ"
+    salarySummary: "પગાર સારાંશ",
+    masterDashboard: "માસ્ટર એડમિન પેનલ",
+    totalBusinesses: "કુલ વ્યવસાયો",
+    activeBusinesses: "સક્રિય વ્યવસાયો",
+    adminCount: "એડમિન સંખ્યા",
+    subAdminCount: "સબ એડમિન સંખ્યા",
+    generateKey: "પ્રોડક્ટ કી બનાવો",
+    activationKey: "એક્ટિવેશન કી",
+    selectPlan: "તમારો પ્લાન પસંદ કરો",
+    starterPlan: "સ્ટાર્ટર પેક",
+    growthPlan: "ગ્રોથ પેક",
+    proPlan: "પ્રો પેક",
+    free: "મફત",
+    upTo3: "3 કર્મચારીઓ સુધી",
+    upTo10: "10 કર્મચારીઓ સુધી",
+    upTo20: "20 કર્મચારીઓ સુધી",
+    upgrade: "અત્યારે અપગ્રેડ કરો",
+    active: "સક્રિય",
+    inactive: "નિષ્ક્રિય",
+    businessList: "વ્યવસાય યાદી"
   }
 };

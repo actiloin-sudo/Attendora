@@ -48,12 +48,16 @@ export default function App() {
   const [lang, setLang] = useState<Language>('en');
   const [user, setUser] = useState<Employee | null>(null);
   const [loginData, setLoginData] = useState({ mobile: '', password: '' });
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'attendance' | 'reports' | 'leaves'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'attendance' | 'reports' | 'leaves' | 'settings' | 'master'>('dashboard');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [masterStats, setMasterStats] = useState<any>(null);
+  const [businesses, setBusinesses] = useState<any[]>([]);
+  const [businessInfo, setBusinessInfo] = useState<any>(null);
+  const [showPlanModal, setShowPlanModal] = useState(false);
   const [todayAttendance, setTodayAttendance] = useState<AttendanceRecord[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
@@ -78,19 +82,34 @@ export default function App() {
   }, [activeTab, user]);
 
   const fetchData = async () => {
+    if (!user) return;
     try {
-      const [empRes, statsRes, attRes, leaveRes, settingsRes] = await Promise.all([
-        fetch('/api/employees'),
-        fetch('/api/stats'),
-        fetch('/api/attendance/today'),
-        fetch(`/api/leaves${user?.role === 'employee' ? `?employee_id=${user.id}` : ''}`),
-        fetch('/api/settings')
+      if (user.role === 'master') {
+        const [statsRes, bizRes] = await Promise.all([
+          fetch('/api/master/stats'),
+          fetch('/api/master/businesses')
+        ]);
+        setMasterStats(await statsRes.json());
+        setBusinesses(await bizRes.json());
+        return;
+      }
+
+      const bId = user.business_id;
+      const [empRes, statsRes, attRes, leaveRes, settingsRes, bizInfoRes] = await Promise.all([
+        fetch(`/api/employees?business_id=${bId}`),
+        fetch(`/api/stats?business_id=${bId}`),
+        fetch(`/api/attendance/today?business_id=${bId}`),
+        fetch(`/api/leaves?business_id=${bId}${user?.role === 'employee' ? `&employee_id=${user.id}` : ''}`),
+        fetch(`/api/settings?business_id=${bId}`),
+        fetch(`/api/business/info/${bId}`)
       ]);
       
       setEmployees(await empRes.json());
       setStats(await statsRes.json());
       setTodayAttendance(await attRes.json());
       setSettings(await settingsRes.json());
+      setBusinessInfo(await bizInfoRes.json());
+      
       const leaveData = await leaveRes.json();
       if (user?.role === 'employee') {
         setMyLeaves(leaveData);
@@ -100,7 +119,7 @@ export default function App() {
 
       // Fetch history
       if (user?.role === 'employee' || activeTab === 'attendance') {
-        const histRes = await fetch(`/api/attendance/report?year=${historyFilter.year}&month=${historyFilter.month}${user?.role === 'employee' ? `&employee_id=${user.id}` : ''}`);
+        const histRes = await fetch(`/api/attendance/report?business_id=${bId}&year=${historyFilter.year}&month=${historyFilter.month}${user?.role === 'employee' ? `&employee_id=${user.id}` : ''}`);
         setAttendanceHistory(await histRes.json());
       }
     } catch (error) {
@@ -119,6 +138,11 @@ export default function App() {
       if (res.ok) {
         const userData = await res.json();
         setUser(userData);
+        if (userData.role === 'master') {
+          setActiveTab('master');
+        } else {
+          setActiveTab('dashboard');
+        }
       } else {
         alert("Invalid credentials");
       }
@@ -170,6 +194,7 @@ export default function App() {
     }
 
     try {
+      const bId = user.business_id;
       const res = await fetch('/api/attendance/check-in', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -179,7 +204,8 @@ export default function App() {
           is_late: isLate,
           latitude: location.lat,
           longitude: location.lng,
-          selfie_url: selfie
+          selfie_url: selfie,
+          business_id: bId
         })
       });
       if (res.ok) {
@@ -201,7 +227,8 @@ export default function App() {
     doc.text(`${settings.business_name || t.title} - ${t.salarySummary}`, 14, 15);
     
     try {
-      const res = await fetch(`/api/attendance/report?year=${year}&month=${month}`);
+      const bId = user.business_id;
+      const res = await fetch(`/api/attendance/report?business_id=${bId}&year=${year}&month=${month}`);
       const records: AttendanceRecord[] = await res.json();
       
       const tableData = employees.map(emp => {
@@ -261,6 +288,7 @@ export default function App() {
       salary: parseFloat(formData.get('salary') as string),
       shift_start: formData.get('shift_start'),
       shift_end: formData.get('shift_end'),
+      business_id: user?.business_id
     };
 
     const url = editingEmployee ? `/api/employees/${editingEmployee.id}` : '/api/employees';
@@ -317,7 +345,8 @@ export default function App() {
       employee_id: parseInt(formData.get('employee_id') as string),
       time: formData.get('time'),
       date: formData.get('date'),
-      is_late: false // Admin manual punch is usually considered on-time or handled manually
+      is_late: false,
+      business_id: user?.business_id
     };
 
     try {
@@ -344,6 +373,7 @@ export default function App() {
     const formData = new FormData(e.currentTarget);
     const data = {
       employee_id: user?.id,
+      business_id: user?.business_id,
       start_date: formData.get('start_date'),
       end_date: formData.get('end_date'),
       reason: `${formData.get('reason_type')}: ${formData.get('reason_detail')}`,
@@ -366,7 +396,10 @@ export default function App() {
 
   const NavItem = ({ id, icon: Icon, label }: { id: typeof activeTab, icon: any, label: string }) => (
     <button
-      onClick={() => { setActiveTab(id); setIsSidebarOpen(false); }}
+      onClick={() => { 
+        setActiveTab(id); 
+        if (window.innerWidth < 768) setIsSidebarOpen(false); 
+      }}
       className={`flex items-center gap-4 w-full p-4 rounded-xl transition-all ${
         activeTab === id 
           ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200' 
@@ -646,75 +679,112 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20 md:pb-0">
-      {/* Mobile Header */}
-      <header className="bg-white border-b border-slate-200 p-4 flex items-center justify-between sticky top-0 z-30 md:hidden">
-        <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-600">
-          <Menu size={28} />
-        </button>
-        <h1 className="text-xl font-bold text-emerald-700">{t.title}</h1>
-        <button 
-          onClick={() => setLang(lang === 'en' ? 'gu' : 'en')}
-          className="flex items-center gap-1 px-3 py-1 bg-slate-100 rounded-full text-sm font-medium"
-        >
-          <Languages size={16} />
-          {t.language}
-        </button>
-      </header>
-
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 flex overflow-hidden">
       {/* Sidebar / Desktop Nav */}
-      <aside className={`
-        fixed inset-y-0 left-0 z-40 w-72 bg-white border-r border-slate-200 transform transition-transform duration-300 ease-in-out
-        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        md:translate-x-0 md:static md:h-screen
-      `}>
-        <div className="p-6 flex flex-col h-full">
+      <motion.aside 
+        initial={false}
+        animate={{ 
+          width: isSidebarOpen ? 288 : 0,
+          opacity: isSidebarOpen ? 1 : 0,
+          x: isSidebarOpen ? 0 : -288
+        }}
+        className={`
+          fixed inset-y-0 left-0 z-40 bg-white border-r border-slate-200 overflow-hidden
+          md:relative md:h-screen md:translate-x-0
+        `}
+      >
+        <div className="w-72 p-6 flex flex-col h-full">
           <div className="flex items-center justify-between mb-8">
             <h1 className="text-2xl font-black text-emerald-700 tracking-tight">{t.title}</h1>
-            <button onClick={() => setIsSidebarOpen(false)} className="md:hidden p-2">
+            <button onClick={() => setIsSidebarOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
               <X size={24} />
             </button>
           </div>
 
-          <nav className="flex-1 space-y-2">
-            <NavItem id="dashboard" icon={ClipboardCheck} label={t.dashboard} />
-            <NavItem id="employees" icon={Users} label={t.employees} />
-            <NavItem id="attendance" icon={Clock} label={t.attendance} />
-            <div className="relative">
-              <NavItem id="leaves" icon={Calendar} label={t.leaves} />
-              {leaves.filter(l => l.status === 'pending').length > 0 && (
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
-                  {leaves.filter(l => l.status === 'pending').length}
-                </span>
-              )}
-            </div>
-            <NavItem id="reports" icon={FileText} label={t.reports} />
-            {user.role === 'owner' && <NavItem id="settings" icon={Settings} label={t.settings} />}
+          <nav className="flex-1 space-y-2 overflow-y-auto">
+            {user.role === 'master' ? (
+              <NavItem id="master" icon={ShieldCheck} label={t.masterDashboard} />
+            ) : (
+              <>
+                <NavItem id="dashboard" icon={ClipboardCheck} label={t.dashboard} />
+                <NavItem id="employees" icon={Users} label={t.employees} />
+                <NavItem id="attendance" icon={Clock} label={t.attendance} />
+                <div className="relative">
+                  <NavItem id="leaves" icon={Calendar} label={t.leaves} />
+                  {leaves.filter(l => l.status === 'pending').length > 0 && (
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                      {leaves.filter(l => l.status === 'pending').length}
+                    </span>
+                  )}
+                </div>
+                <NavItem id="reports" icon={FileText} label={t.reports} />
+                {user.role === 'owner' && <NavItem id="settings" icon={Settings} label={t.settings} />}
+              </>
+            )}
           </nav>
 
-          <div className="mt-auto pt-6 border-t border-slate-100">
+          <div className="mt-auto pt-6 border-t border-slate-100 space-y-4">
+            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl">
+              <div className="w-10 h-10 bg-emerald-100 text-emerald-700 rounded-xl flex items-center justify-center font-bold uppercase">
+                {user.name[0]}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold truncate">{user.name}</p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{user.role}</p>
+              </div>
+            </div>
+            
             <button 
               onClick={() => setLang(lang === 'en' ? 'gu' : 'en')}
-              className="flex items-center gap-3 w-full p-4 rounded-xl text-slate-600 hover:bg-slate-100 mb-2 hidden md:flex"
+              className="w-full flex items-center gap-3 p-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition-all"
             >
-              <Languages size={24} />
-              <span className="font-semibold">{t.language}</span>
+              <Languages size={20} />
+              <span>{t.language}</span>
             </button>
+
             <button 
               onClick={() => setUser(null)}
-              className="flex items-center gap-3 w-full p-4 rounded-xl text-red-600 hover:bg-red-50"
+              className="w-full flex items-center gap-3 p-3 text-red-600 font-bold hover:bg-red-50 rounded-xl transition-all"
             >
-              <LogOut size={24} />
-              <span className="font-semibold">Logout</span>
+              <LogOut size={20} />
+              <span>{t.login}</span>
             </button>
           </div>
         </div>
-      </aside>
+      </motion.aside>
 
-      {/* Main Content */}
-      <main className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full">
-        <AnimatePresence mode="wait">
-          {activeTab === 'dashboard' && (
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+        {/* Top Header */}
+        <header className="bg-white border-b border-slate-200 p-4 flex items-center justify-between sticky top-0 z-30">
+          <div className="flex items-center gap-4">
+            {!isSidebarOpen && (
+              <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-600 hover:bg-slate-100 rounded-xl transition-all">
+                <Menu size={28} />
+              </button>
+            )}
+            <h2 className="text-xl font-black text-slate-800 capitalize">{activeTab}</h2>
+          </div>
+          
+          {user.role === 'owner' && businessInfo && (
+            <div className="flex items-center gap-4">
+              <div className="hidden md:flex flex-col items-end">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t.selectPlan}</span>
+                <span className="text-sm font-black text-emerald-700">{businessInfo.plan_name}</span>
+              </div>
+              <button 
+                onClick={() => setShowPlanModal(true)}
+                className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-black shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all"
+              >
+                {t.upgrade}
+              </button>
+            </div>
+          )}
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-4 md:p-8">
+          <AnimatePresence mode="wait">
+            {activeTab === 'dashboard' && (
             <motion.div
               key="dashboard"
               initial={{ opacity: 0, y: 20 }}
@@ -1111,7 +1181,7 @@ export default function App() {
                   onSubmit={async (e) => {
                     e.preventDefault();
                     const formData = new FormData(e.currentTarget);
-                    const data = Object.fromEntries(formData.entries());
+                    const data = { ...Object.fromEntries(formData.entries()), business_id: user?.business_id };
                     const res = await fetch('/api/settings', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
@@ -1165,200 +1235,217 @@ export default function App() {
               </div>
             </motion.div>
           )}
-        </AnimatePresence>
+          {activeTab === 'master' && (
+            <motion.div
+              key="master"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="space-y-8"
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-3xl font-black text-slate-900">{t.masterDashboard}</h2>
+                <button 
+                  onClick={async () => {
+                    const res = await fetch('/api/master/generate-key', { method: 'POST' });
+                    const { key } = await res.json();
+                    alert(`${t.activationKey}: ${key}`);
+                  }}
+                  className="bg-emerald-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-emerald-100 flex items-center gap-2"
+                >
+                  <Plus size={20} />
+                  {t.generateKey}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">{t.totalBusinesses}</p>
+                  <h3 className="text-4xl font-black text-slate-900">{masterStats?.totalBusinesses || 0}</h3>
+                </div>
+                <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">{t.activeBusinesses}</p>
+                  <h3 className="text-4xl font-black text-emerald-600">{masterStats?.activeBusinesses || 0}</h3>
+                </div>
+                <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">{t.adminCount}</p>
+                  <h3 className="text-4xl font-black text-blue-600">{masterStats?.adminCount || 0}</h3>
+                </div>
+                <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">{t.totalEmployees}</p>
+                  <h3 className="text-4xl font-black text-slate-900">{masterStats?.totalEmployees || 0}</h3>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
+                <div className="p-8 border-b border-slate-100">
+                  <h3 className="text-xl font-black text-slate-900">{t.businessList}</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                      <tr>
+                        <th className="px-8 py-4">{t.businessName}</th>
+                        <th className="px-8 py-4">{t.owner}</th>
+                        <th className="px-8 py-4">Plan</th>
+                        <th className="px-8 py-4">Employees</th>
+                        <th className="px-8 py-4">{t.status}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {businesses.map(biz => (
+                        <tr key={biz.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-8 py-6 font-bold text-slate-900">{biz.name}</td>
+                          <td className="px-8 py-6">
+                            <p className="font-bold text-slate-900">{biz.owner_name}</p>
+                            <p className="text-xs text-slate-500">{biz.owner_mobile}</p>
+                          </td>
+                          <td className="px-8 py-6">
+                            <span className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-black uppercase">
+                              {biz.plan_name}
+                            </span>
+                          </td>
+                          <td className="px-8 py-6 font-bold text-slate-600">{biz.employee_count} / {biz.employee_limit}</td>
+                          <td className="px-8 py-6">
+                            <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${biz.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                              {biz.status === 'active' ? t.active : t.inactive}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </motion.div>
+          )}
+          </AnimatePresence>
+        </div>
       </main>
 
-      {/* Mobile Bottom Nav */}
-      <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 flex justify-around p-2 md:hidden z-30">
-        <button onClick={() => setActiveTab('dashboard')} className={`p-3 rounded-2xl flex flex-col items-center gap-1 ${activeTab === 'dashboard' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400'}`}>
-          <ClipboardCheck size={24} />
-          <span className="text-[10px] font-bold uppercase">{t.dashboard}</span>
-        </button>
-        <button onClick={() => setActiveTab('employees')} className={`p-3 rounded-2xl flex flex-col items-center gap-1 ${activeTab === 'employees' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400'}`}>
-          <Users size={24} />
-          <span className="text-[10px] font-bold uppercase">{t.employees}</span>
-        </button>
-        <button onClick={() => setActiveTab('attendance')} className={`p-3 rounded-2xl flex flex-col items-center gap-1 ${activeTab === 'attendance' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400'}`}>
-          <Clock size={24} />
-          <span className="text-[10px] font-bold uppercase">{t.attendance}</span>
-        </button>
-        <button onClick={() => setActiveTab('reports')} className={`p-3 rounded-2xl flex flex-col items-center gap-1 ${activeTab === 'reports' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400'}`}>
-          <FileText size={24} />
-          <span className="text-[10px] font-bold uppercase">{t.reports}</span>
-        </button>
-      </nav>
-
-      {/* Manual Punch Modal */}
+      {/* Plan Selection Modal */}
       <AnimatePresence>
-        {showManualPunch && (
+        {showPlanModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowManualPunch(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="relative bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl"
-            >
-              <h3 className="text-2xl font-black text-emerald-700 mb-6">{t.manualPunch}</h3>
-              <form onSubmit={handleManualPunch} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">{t.employees}</label>
-                  <select name="employee_id" required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none">
-                    {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">{t.date}</label>
-                  <input type="date" name="date" defaultValue={new Date().toISOString().split('T')[0]} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase">{t.time}</label>
-                    <input type="time" name="time" required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Type</label>
-                    <select name="punch_type" required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none">
-                      <option value="in">{t.checkIn}</option>
-                      <option value="out">{t.checkOut}</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="flex gap-3 pt-4">
-                  <button type="button" onClick={() => setShowManualPunch(false)} className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold">{t.cancel}</button>
-                  <button type="submit" className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100">{t.save}</button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Add/Edit Employee Modal */}
-      <AnimatePresence>
-        {showAddEmployee && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowAddEmployee(false)}
+              onClick={() => setShowPlanModal(false)}
               className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden"
+              className="relative bg-white w-full max-w-4xl rounded-[3rem] shadow-2xl overflow-hidden p-8 md:p-12"
             >
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-8">
-                  <h3 className="text-2xl font-black text-slate-900">{editingEmployee ? t.editEmployee : t.addEmployee}</h3>
-                  <button onClick={() => setShowAddEmployee(false)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors">
-                    <X size={24} />
+              <div className="text-center mb-12">
+                <h2 className="text-4xl font-black text-slate-900 mb-4">{t.selectPlan}</h2>
+                <p className="text-slate-500 font-bold">Choose the best plan for your growing business</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {/* Starter Plan */}
+                <div className={`p-8 rounded-[2.5rem] border-2 transition-all ${businessInfo?.plan_name === 'Starter' ? 'border-emerald-500 bg-emerald-50/50' : 'border-slate-100 bg-white'}`}>
+                  <h3 className="text-xl font-black text-slate-900 mb-2">{t.starterPlan}</h3>
+                  <div className="flex items-baseline gap-1 mb-6">
+                    <span className="text-3xl font-black text-emerald-600">{t.free}</span>
+                  </div>
+                  <ul className="space-y-4 mb-8">
+                    <li className="flex items-center gap-3 text-sm font-bold text-slate-600">
+                      <CheckCircle2 size={18} className="text-emerald-500" />
+                      {t.upTo3}
+                    </li>
+                    <li className="flex items-center gap-3 text-sm font-bold text-slate-600">
+                      <CheckCircle2 size={18} className="text-emerald-500" />
+                      Basic Reports
+                    </li>
+                  </ul>
+                  <button 
+                    disabled={businessInfo?.plan_name === 'Starter'}
+                    onClick={async () => {
+                      await fetch('/api/business/select-plan', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ business_id: user?.business_id, plan_name: 'Starter', employee_limit: 3 })
+                      });
+                      setShowPlanModal(false);
+                      fetchData();
+                    }}
+                    className={`w-full py-4 rounded-2xl font-black transition-all ${businessInfo?.plan_name === 'Starter' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
+                  >
+                    {businessInfo?.plan_name === 'Starter' ? 'Current Plan' : 'Select Plan'}
                   </button>
                 </div>
 
-                <form onSubmit={handleSaveEmployee} className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.name}</label>
-                    <input 
-                      name="name" 
-                      required 
-                      defaultValue={editingEmployee?.name}
-                      placeholder="e.g. Ramesh Patel"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 font-bold focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
-                    />
+                {/* Growth Plan */}
+                <div className={`p-8 rounded-[2.5rem] border-2 transition-all relative ${businessInfo?.plan_name === 'Growth' ? 'border-emerald-500 bg-emerald-50/50' : 'border-slate-100 bg-white'}`}>
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-emerald-600 text-white px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Popular</div>
+                  <h3 className="text-xl font-black text-slate-900 mb-2">{t.growthPlan}</h3>
+                  <div className="flex items-baseline gap-1 mb-6">
+                    <span className="text-3xl font-black text-emerald-600">₹99</span>
+                    <span className="text-slate-400 font-bold">/mo</span>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.mobile}</label>
-                    <input 
-                      name="mobile" 
-                      required 
-                      defaultValue={editingEmployee?.mobile}
-                      placeholder="9876543210"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 font-bold focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.password}</label>
-                    <input 
-                      name="password" 
-                      type="password"
-                      required 
-                      defaultValue={editingEmployee?.password}
-                      placeholder="******"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 font-bold focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.role}</label>
-                    <select 
-                      name="role" 
-                      required 
-                      defaultValue={editingEmployee?.role || 'employee'}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 font-bold focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
-                    >
-                      <option value="employee">{t.employee}</option>
-                      <option value="sub-admin">{t.subAdmin}</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.salary}</label>
-                    <input 
-                      name="salary" 
-                      type="number" 
-                      required 
-                      defaultValue={editingEmployee?.salary}
-                      placeholder="15000"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 font-bold focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.shiftStart}</label>
-                      <input 
-                        name="shift_start" 
-                        type="time" 
-                        required 
-                        defaultValue={editingEmployee?.shift_start || "09:00"}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 font-bold focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.shiftEnd}</label>
-                      <input 
-                        name="shift_end" 
-                        type="time" 
-                        required 
-                        defaultValue={editingEmployee?.shift_end || "18:00"}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 font-bold focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
-                      />
-                    </div>
-                  </div>
+                  <ul className="space-y-4 mb-8">
+                    <li className="flex items-center gap-3 text-sm font-bold text-slate-600">
+                      <CheckCircle2 size={18} className="text-emerald-500" />
+                      {t.upTo10}
+                    </li>
+                    <li className="flex items-center gap-3 text-sm font-bold text-slate-600">
+                      <CheckCircle2 size={18} className="text-emerald-500" />
+                      Advanced Reports
+                    </li>
+                  </ul>
+                  <button 
+                    disabled={businessInfo?.plan_name === 'Growth'}
+                    onClick={async () => {
+                      await fetch('/api/business/select-plan', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ business_id: user?.business_id, plan_name: 'Growth', employee_limit: 10 })
+                      });
+                      setShowPlanModal(false);
+                      fetchData();
+                    }}
+                    className={`w-full py-4 rounded-2xl font-black transition-all ${businessInfo?.plan_name === 'Growth' ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-100'}`}
+                  >
+                    {businessInfo?.plan_name === 'Growth' ? 'Current Plan' : 'Select Plan'}
+                  </button>
+                </div>
 
-                  <div className="flex gap-3 pt-4">
-                    <button 
-                      type="button"
-                      onClick={() => setShowAddEmployee(false)}
-                      className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-all"
-                    >
-                      {t.cancel}
-                    </button>
-                    <button 
-                      type="submit"
-                      className="flex-2 bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-all"
-                    >
-                      {t.save}
-                    </button>
+                {/* Pro Plan */}
+                <div className={`p-8 rounded-[2.5rem] border-2 transition-all ${businessInfo?.plan_name === 'Pro' ? 'border-emerald-500 bg-emerald-50/50' : 'border-slate-100 bg-white'}`}>
+                  <h3 className="text-xl font-black text-slate-900 mb-2">{t.proPlan}</h3>
+                  <div className="flex items-baseline gap-1 mb-6">
+                    <span className="text-3xl font-black text-emerald-600">₹199</span>
+                    <span className="text-slate-400 font-bold">/mo</span>
                   </div>
-                </form>
+                  <ul className="space-y-4 mb-8">
+                    <li className="flex items-center gap-3 text-sm font-bold text-slate-600">
+                      <CheckCircle2 size={18} className="text-emerald-500" />
+                      {t.upTo20}
+                    </li>
+                    <li className="flex items-center gap-3 text-sm font-bold text-slate-600">
+                      <CheckCircle2 size={18} className="text-emerald-500" />
+                      Priority Support
+                    </li>
+                  </ul>
+                  <button 
+                    disabled={businessInfo?.plan_name === 'Pro'}
+                    onClick={async () => {
+                      await fetch('/api/business/select-plan', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ business_id: user?.business_id, plan_name: 'Pro', employee_limit: 20 })
+                      });
+                      setShowPlanModal(false);
+                      fetchData();
+                    }}
+                    className={`w-full py-4 rounded-2xl font-black transition-all ${businessInfo?.plan_name === 'Pro' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
+                  >
+                    {businessInfo?.plan_name === 'Pro' ? 'Current Plan' : 'Select Plan'}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
