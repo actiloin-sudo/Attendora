@@ -1,0 +1,8 @@
+{
+  "name": "Attendora",
+  "description": "A simple, mobile-first attendance and salary management app for small business owners, supporting English and Gujarati.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
