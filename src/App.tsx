@@ -55,11 +55,25 @@ export default function App() {
   const [businesses, setBusinesses] = useState<any[]>([]);
   const [businessInfo, setBusinessInfo] = useState<any>(null);
   const [showPlanModal, setShowPlanModal] = useState(false);
+  const [showSignup, setShowSignup] = useState(false);
+  const [signupData, setSignupData] = useState({ 
+    name: '', 
+    business_name: '', 
+    email: '', 
+    mobile: '', 
+    password: '', 
+    plan_name: 'Starter', 
+    employee_limit: 3 
+  });
+  const [showPinChange, setShowPinChange] = useState(false);
+  const [newPinData, setNewPinData] = useState({ pin: '', confirm: '' });
   const [todayAttendance, setTodayAttendance] = useState<AttendanceRecord[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [editingAttendance, setEditingAttendance] = useState<AttendanceRecord | null>(null);
+  const [showAddBusiness, setShowAddBusiness] = useState(false);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [myLeaves, setMyLeaves] = useState<LeaveRequest[]>([]);
   const [lateAlert, setLateAlert] = useState(false);
@@ -138,16 +152,112 @@ export default function App() {
       if (res.ok) {
         const userData = await res.json();
         setUser(userData);
+        if (userData.is_first_login) {
+          setShowPinChange(true);
+        }
         if (userData.role === 'master') {
           setActiveTab('master');
         } else {
           setActiveTab('dashboard');
         }
       } else {
-        alert("Invalid credentials");
+        const err = await res.json();
+        alert(err.error || "Invalid credentials");
       }
     } catch (error) {
       console.error("Login error:", error);
+    }
+  };
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!signupData.payment_screenshot) {
+      alert(t.selfieRequired); // Reusing for screenshot for now or add new translation
+      return;
+    }
+    try {
+      const res = await fetch('/api/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(signupData)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert(`${t.paymentSuccess}\n\n${t.productKey}: ${data.productKey}\n\nAccount will be active after Master Admin approval.`);
+        setShowSignup(false);
+      } else {
+        const err = await res.json();
+        alert(err.error || "Signup failed");
+      }
+    } catch (error) {
+      console.error("Signup error:", error);
+    }
+  };
+
+  const handleSaveAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAttendance) return;
+    const formData = new FormData(e.currentTarget as HTMLFormElement);
+    const data = {
+      check_in: formData.get('check_in'),
+      check_out: formData.get('check_out'),
+      status: formData.get('status'),
+      is_late: formData.get('is_late') === 'on'
+    };
+    try {
+      const res = await fetch(`/api/attendance/${editingAttendance.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (res.ok) {
+        setEditingAttendance(null);
+        fetchData();
+      }
+    } catch (error) {
+      console.error("Error updating attendance:", error);
+    }
+  };
+
+  const handleAddBusiness = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget as HTMLFormElement);
+    const data = Object.fromEntries(formData.entries());
+    try {
+      const res = await fetch('/api/master/add-business', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (res.ok) {
+        const result = await res.json();
+        alert(`Business added! Product Key: ${result.productKey}`);
+        setShowAddBusiness(false);
+        fetchData();
+      }
+    } catch (error) {
+      console.error("Error adding business:", error);
+    }
+  };
+
+  const handlePinChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPinData.pin !== newPinData.confirm) {
+      alert("PINs do not match");
+      return;
+    }
+    try {
+      const res = await fetch('/api/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: user?.id, new_password: newPinData.pin })
+      });
+      if (res.ok) {
+        setShowPinChange(false);
+        alert("PIN changed successfully");
+      }
+    } catch (error) {
+      console.error("PIN change error:", error);
     }
   };
 
@@ -285,6 +395,8 @@ export default function App() {
     const data = {
       name: formData.get('name'),
       mobile: formData.get('mobile'),
+      password: formData.get('password') || editingEmployee?.password || '123456',
+      role: formData.get('role') || editingEmployee?.role || 'employee',
       salary: parseFloat(formData.get('salary') as string),
       shift_start: formData.get('shift_start'),
       shift_end: formData.get('shift_end'),
@@ -424,14 +536,12 @@ export default function App() {
             <p className="text-slate-500 font-bold">{t.welcome}</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-6">
-            <p className="text-xs text-slate-400 text-center bg-slate-50 p-2 rounded-lg">
-              {lang === 'en' ? 'Employees: Use your mobile number to login.' : 'કર્મચારીઓ: લોગિન કરવા માટે તમારા મોબાઈલ નંબરનો ઉપયોગ કરો.'}
-            </p>
             <div className="space-y-2">
               <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.mobile}</label>
               <input 
                 type="text"
                 required
+                placeholder="Mobile Number"
                 value={loginData.mobile}
                 onChange={(e) => setLoginData({ ...loginData, mobile: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 font-bold focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
@@ -442,11 +552,24 @@ export default function App() {
               <input 
                 type="password"
                 required
+                placeholder="PIN / Password"
                 value={loginData.password}
                 onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 font-bold focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
               />
             </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.productKey} (Optional for Employees)</label>
+              <input 
+                type="text"
+                placeholder="17-Digit Key (Required for Owners)"
+                value={(loginData as any).productKey || ''}
+                onChange={(e) => setLoginData({ ...loginData, [ 'productKey' as any]: e.target.value })}
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 font-bold focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
+              />
+            </div>
+
             <button 
               type="submit"
               className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-lg shadow-xl shadow-emerald-200 hover:bg-emerald-700 active:scale-95 transition-all"
@@ -454,14 +577,160 @@ export default function App() {
               {t.login}
             </button>
           </form>
-          <button 
-            onClick={() => setLang(lang === 'en' ? 'gu' : 'en')}
-            className="w-full mt-6 text-emerald-600 font-bold flex items-center justify-center gap-2"
-          >
-            <Languages size={20} />
-            {t.language}
-          </button>
+
+          <div className="mt-6 text-center space-y-4">
+            <button 
+              onClick={() => setShowSignup(true)}
+              className="text-emerald-600 font-bold hover:underline"
+            >
+              {t.noAccount} {t.signup}
+            </button>
+            
+            <button 
+              onClick={() => setLang(lang === 'en' ? 'gu' : 'en')}
+              className="w-full text-emerald-600 font-bold flex items-center justify-center gap-2"
+            >
+              <Languages size={20} />
+              {t.language}
+            </button>
+          </div>
         </motion.div>
+
+        {/* Signup Modal */}
+        <AnimatePresence>
+          {showSignup && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-emerald-900/80 backdrop-blur-md overflow-y-auto">
+              <motion.div 
+                initial={{ opacity: 0, y: 50 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 50 }}
+                className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl my-8"
+              >
+                <div className="flex justify-between items-center mb-8">
+                  <h2 className="text-3xl font-black text-emerald-700">{t.signup}</h2>
+                  <button onClick={() => setShowSignup(false)} className="p-2 hover:bg-slate-100 rounded-full"><X size={24}/></button>
+                </div>
+
+                <form onSubmit={handleSignup} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-slate-500 uppercase">{t.name}</label>
+                    <input type="text" required value={signupData.name} onChange={e => setSignupData({...signupData, name: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-3 font-bold outline-none" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-slate-500 uppercase">{t.businessName}</label>
+                    <input type="text" required value={signupData.business_name} onChange={e => setSignupData({...signupData, business_name: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-3 font-bold outline-none" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-slate-500 uppercase">{t.businessEmail}</label>
+                    <input type="email" required value={signupData.email} onChange={e => setSignupData({...signupData, email: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-3 font-bold outline-none" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-slate-500 uppercase">{t.mobile}</label>
+                    <input type="text" required value={signupData.mobile} onChange={e => setSignupData({...signupData, mobile: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-3 font-bold outline-none" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-slate-500 uppercase">{t.password}</label>
+                    <input type="password" required value={signupData.password} onChange={e => setSignupData({...signupData, password: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-3 font-bold outline-none" />
+                  </div>
+                  
+                  <div className="md:col-span-2 space-y-4">
+                    <label className="text-sm font-bold text-slate-500 uppercase">{t.selectPlan}</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {[
+                        { name: 'Starter', limit: 3, price: t.free },
+                        { name: 'Growth', limit: 10, price: 'Rs. 99/mo' },
+                        { name: 'Pro', limit: 20, price: 'Rs. 199/mo' }
+                      ].map(plan => (
+                        <button
+                          key={plan.name}
+                          type="button"
+                          onClick={() => setSignupData({...signupData, plan_name: plan.name, employee_limit: plan.limit})}
+                          className={`p-4 rounded-2xl border-2 text-left transition-all ${signupData.plan_name === plan.name ? 'border-emerald-600 bg-emerald-50' : 'border-slate-100 hover:border-emerald-200'}`}
+                        >
+                          <p className="font-black text-emerald-700">{plan.name}</p>
+                          <p className="text-xs font-bold text-slate-500">{plan.limit} Employees</p>
+                          <p className="text-sm font-black mt-2">{plan.price}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-2 p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+                    <p className="text-xs font-black text-emerald-800 uppercase mb-3">{t.paymentQR}</p>
+                    <div className="flex flex-col md:flex-row gap-4 items-center">
+                      <div className="w-32 h-32 bg-white p-2 rounded-xl border border-emerald-200 flex items-center justify-center">
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=upi://pay?pa=actilo.in@gmail.com&pn=Attendora&am=99&cu=INR" alt="UPI QR" referrerPolicy="no-referrer" className="w-full h-full object-contain" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[10px] font-bold text-emerald-700 leading-relaxed mb-3">
+                          {t.paymentInstructions}
+                        </p>
+                        <input 
+                          type="file" 
+                          accept="image/*"
+                          required
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onloadend = () => setSignupData({...signupData, payment_screenshot: reader.result as string});
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                          className="text-[10px] font-bold text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-emerald-600 file:text-white hover:file:bg-emerald-700"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-2 pt-4">
+                    <button type="submit" className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-lg shadow-xl shadow-emerald-100">
+                      Sign Up & Pay
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {showPinChange && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-emerald-900/80 backdrop-blur-md">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl"
+            >
+              <h3 className="text-2xl font-black text-emerald-700 mb-2">{t.changePin}</h3>
+              <p className="text-slate-500 font-bold mb-6">{t.firstLoginPinChange}</p>
+              <form onSubmit={handlePinChange} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.newPin}</label>
+                  <input 
+                    type="password" 
+                    required 
+                    value={newPinData.pin}
+                    onChange={e => setNewPinData({...newPinData, pin: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none" 
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.confirmPin}</label>
+                  <input 
+                    type="password" 
+                    required 
+                    value={newPinData.confirm}
+                    onChange={e => setNewPinData({...newPinData, confirm: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none" 
+                  />
+                </div>
+                <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-100 mt-4">
+                  {t.save}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1120,13 +1389,14 @@ export default function App() {
 
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
                 <div className="flex flex-wrap gap-4 mb-8">
-                  <select className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:ring-2 focus:ring-emerald-500 outline-none">
-                    <option>March 2026</option>
-                    <option>February 2026</option>
-                  </select>
-                  <select className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:ring-2 focus:ring-emerald-500 outline-none">
-                    <option>All Employees</option>
-                    {employees.map(e => <option key={e.id}>{e.name}</option>)}
+                  <select 
+                    value={historyFilter.month}
+                    onChange={(e) => setHistoryFilter({ ...historyFilter, month: e.target.value })}
+                    className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:ring-2 focus:ring-emerald-500 outline-none"
+                  >
+                    {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => (
+                      <option key={m} value={m}>{new Date(2026, parseInt(m)-1).toLocaleString('default', { month: 'long' })}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -1135,35 +1405,57 @@ export default function App() {
                     <thead>
                       <tr className="text-slate-400 text-sm uppercase tracking-wider">
                         <th className="pb-4 font-medium">{t.name}</th>
-                        <th className="pb-4 font-medium">{t.daysPresent}</th>
-                        <th className="pb-4 font-medium">{t.hoursWorked}</th>
-                        <th className="pb-4 font-medium">{t.lateDays}</th>
+                        <th className="pb-4 font-medium">{t.date}</th>
+                        <th className="pb-4 font-medium">{t.selfie}</th>
+                        <th className="pb-4 font-medium">{t.location}</th>
                         <th className="pb-4 font-medium">{t.payableSalary}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {employees.map(emp => {
-                        const empRecords = attendanceHistory.filter(r => r.employee_id === emp.id);
-                        const present = empRecords.filter(r => r.status === 'present').length;
-                        const hours = empRecords.reduce((acc, r) => acc + (r.hours || 0), 0);
-                        const late = empRecords.filter(r => r.is_late).length;
-                        const penalty = late * (parseInt(settings.late_penalty) || 0);
-                        const payable = settings.salary_rule === 'hourly' 
-                          ? (hours * emp.salary) - penalty 
-                          : ((emp.salary / 30) * present) - penalty;
-
-                        return (
-                          <tr key={emp.id} className="group hover:bg-slate-50 transition-colors">
-                            <td className="py-4 font-bold text-slate-900">{emp.name}</td>
-                            <td className="py-4 font-bold text-slate-600">{present}</td>
-                            <td className="py-4 font-bold text-slate-600">{hours.toFixed(1)}h</td>
-                            <td className="py-4 font-bold text-amber-600">{late}</td>
-                            <td className="py-4 font-black text-emerald-700">₹{Math.max(0, payable).toFixed(0)}</td>
-                          </tr>
-                        );
-                      })}
+                      {attendanceHistory.map((rec) => (
+                        <tr key={rec.id} className="group hover:bg-slate-50 transition-colors">
+                          <td className="py-4 font-bold text-slate-900">{rec.name}</td>
+                          <td className="py-4 font-bold text-slate-600">{rec.date}</td>
+                          <td className="py-4">
+                            {rec.selfie_url ? (
+                              <img src={rec.selfie_url} className="w-10 h-10 rounded-lg object-cover border border-slate-200" referrerPolicy="no-referrer" />
+                            ) : '-'}
+                          </td>
+                          <td className="py-4">
+                            {rec.latitude ? (
+                              <a 
+                                href={`https://www.google.com/maps?q=${rec.latitude},${rec.longitude}`} 
+                                target="_blank" 
+                                className="text-emerald-600 flex items-center gap-1 hover:underline text-xs font-bold"
+                              >
+                                <MapPin size={14} />
+                                {Math.round(rec.distance_from_office || 0)}m
+                              </a>
+                            ) : '-'}
+                          </td>
+                          <td className="py-4 font-black text-emerald-700">
+                            <div className="flex items-center gap-2">
+                              ₹{((rec.hours || 0) * (employees.find(e => e.id === rec.employee_id)?.salary || 0) / 160).toFixed(0)}
+                              {(user?.role === 'owner' || user?.role === 'sub-admin') && (
+                                <button 
+                                  onClick={() => setEditingAttendance(rec)}
+                                  className="p-1 text-slate-400 hover:text-emerald-600 transition-colors"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
+                  {attendanceHistory.length === 0 && (
+                    <div className="text-center py-12">
+                      <FileText size={48} className="mx-auto text-slate-200 mb-4" />
+                      <p className="text-slate-400 font-bold">{t.noRecords}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>
@@ -1178,6 +1470,7 @@ export default function App() {
               <h2 className="text-3xl font-black text-slate-900">{t.settings}</h2>
               <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
                 <form 
+                  key={JSON.stringify(settings)}
                   onSubmit={async (e) => {
                     e.preventDefault();
                     const formData = new FormData(e.currentTarget);
@@ -1192,16 +1485,16 @@ export default function App() {
                       fetchData();
                     }
                   }}
-                  className="space-y-6"
+                  className="space-y-8"
                 >
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.businessName}</label>
                       <input name="business_name" defaultValue={settings.business_name} className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.employeeLimit}</label>
-                      <input name="employee_limit" type="number" defaultValue={settings.employee_limit} className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                      <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.whatsappNumber}</label>
+                      <input name="whatsapp_number" defaultValue={settings.whatsapp_number} placeholder="e.g. 919876543210" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.salaryRule}</label>
@@ -1214,12 +1507,68 @@ export default function App() {
                       <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.latePenalty}</label>
                       <input name="late_penalty" type="number" defaultValue={settings.late_penalty} className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold text-slate-500 uppercase tracking-wider">{t.whatsappNumber}</label>
-                      <input name="whatsapp_number" defaultValue={settings.whatsapp_number} placeholder="e.g. 919876543210" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
-                    </div>
                   </div>
-                  <div className="pt-6 border-t border-slate-100 flex gap-4">
+
+                  <div className="pt-8 border-t border-slate-100">
+                    <h4 className="text-lg font-black text-emerald-700 mb-6 flex items-center gap-2">
+                      <MapPin size={24} />
+                      {t.officeLocation}
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Latitude</label>
+                        <input 
+                          name="office_lat" 
+                          type="number" 
+                          step="any"
+                          defaultValue={businessInfo?.office_lat} 
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 font-bold outline-none" 
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Longitude</label>
+                        <input 
+                          name="office_lng" 
+                          type="number" 
+                          step="any"
+                          defaultValue={businessInfo?.office_lng} 
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 font-bold outline-none" 
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">{t.geofenceRadius}</label>
+                        <input 
+                          name="geofence_radius" 
+                          type="number" 
+                          defaultValue={businessInfo?.geofence_radius || 100} 
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 font-bold outline-none" 
+                        />
+                      </div>
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        navigator.geolocation.getCurrentPosition((pos) => {
+                          const lat = pos.coords.latitude;
+                          const lng = pos.coords.longitude;
+                          fetch('/api/business/update-geofence', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ business_id: user?.business_id, lat, lng, radius: 100 })
+                          }).then(() => {
+                            alert("Office location set to your current position!");
+                            fetchData();
+                          });
+                        });
+                      }}
+                      className="mt-4 text-emerald-600 font-bold flex items-center gap-2 hover:underline"
+                    >
+                      <MapPin size={18} />
+                      {t.setOfficeLocation}
+                    </button>
+                  </div>
+
+                  <div className="pt-8 border-t border-slate-100 flex gap-4">
                     <button type="submit" className="bg-emerald-600 text-white px-12 py-4 rounded-2xl font-black text-lg shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all">
                       {t.save}
                     </button>
@@ -1243,17 +1592,16 @@ export default function App() {
               className="space-y-8"
             >
               <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-black text-slate-900">{t.masterDashboard}</h2>
+                <div>
+                  <h2 className="text-3xl font-black text-slate-900">{t.masterDashboard}</h2>
+                  <p className="text-slate-500 font-bold">Developer Dashboard - Default Credentials: admin@attendora.com / masteradmin</p>
+                </div>
                 <button 
-                  onClick={async () => {
-                    const res = await fetch('/api/master/generate-key', { method: 'POST' });
-                    const { key } = await res.json();
-                    alert(`${t.activationKey}: ${key}`);
-                  }}
+                  onClick={() => setShowAddBusiness(true)}
                   className="bg-emerald-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-emerald-100 flex items-center gap-2"
                 >
                   <Plus size={20} />
-                  {t.generateKey}
+                  {t.addBusiness}
                 </button>
               </div>
 
@@ -1288,7 +1636,9 @@ export default function App() {
                         <th className="px-8 py-4">{t.owner}</th>
                         <th className="px-8 py-4">Plan</th>
                         <th className="px-8 py-4">Employees</th>
+                        <th className="px-8 py-4">{t.activationKey}</th>
                         <th className="px-8 py-4">{t.status}</th>
+                        <th className="px-8 py-4">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1305,10 +1655,55 @@ export default function App() {
                             </span>
                           </td>
                           <td className="px-8 py-6 font-bold text-slate-600">{biz.employee_count} / {biz.employee_limit}</td>
+                          <td className="px-8 py-6 font-mono text-xs font-bold text-slate-500">{biz.activation_key}</td>
                           <td className="px-8 py-6">
-                            <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${biz.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                              {biz.status === 'active' ? t.active : t.inactive}
-                            </span>
+                            <div className="flex items-center gap-3">
+                              <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${biz.status === 'active' ? 'bg-emerald-100 text-emerald-700' : (biz.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700')}`}>
+                                {biz.status === 'active' ? t.active : (biz.status === 'pending' ? t.pending : t.inactive)}
+                              </span>
+                              {biz.payment_screenshot && (
+                                <button 
+                                  onClick={() => window.open(biz.payment_screenshot, '_blank')}
+                                  className="text-blue-600 hover:underline text-[10px] font-bold uppercase"
+                                >
+                                  View Payment
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-8 py-6">
+                            <div className="flex gap-2">
+                              {biz.status === 'pending' && (
+                                <button 
+                                  onClick={async () => {
+                                    await fetch('/api/master/approve-business', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ business_id: biz.id, status: 'active' })
+                                    });
+                                    fetchData();
+                                  }}
+                                  className="bg-emerald-600 text-white px-3 py-1 rounded-lg font-bold text-[10px] uppercase"
+                                >
+                                  {t.approve}
+                                </button>
+                              )}
+                              <button 
+                                onClick={async () => {
+                                  const res = await fetch('/api/master/regenerate-key', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ business_id: biz.id })
+                                  });
+                                  const { key } = await res.json();
+                                  alert(`${t.regenerateKey}: ${key}`);
+                                  fetchData();
+                                }}
+                                className="text-emerald-600 hover:text-emerald-700 font-bold text-xs uppercase"
+                              >
+                                {t.regenerateKey}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1447,6 +1842,238 @@ export default function App() {
                   </button>
                 </div>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add/Edit Employee Modal */}
+      <AnimatePresence>
+        {showAddEmployee && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddEmployee(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl"
+            >
+              <h3 className="text-2xl font-black text-emerald-700 mb-6">{editingEmployee ? t.editEmployee : t.addEmployee}</h3>
+              <form onSubmit={handleSaveEmployee} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.name}</label>
+                  <input name="name" defaultValue={editingEmployee?.name} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.mobile}</label>
+                  <input name="mobile" defaultValue={editingEmployee?.mobile} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.password}</label>
+                  <input name="password" type="text" defaultValue={editingEmployee?.password || '123456'} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.role}</label>
+                  <select name="role" defaultValue={editingEmployee?.role || 'employee'} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500">
+                    <option value="employee">{t.employee}</option>
+                    <option value="sub-admin">{t.subAdmin}</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.salary}</label>
+                  <input name="salary" type="number" defaultValue={editingEmployee?.salary} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">{t.shiftStart}</label>
+                    <input name="shift_start" type="time" defaultValue={editingEmployee?.shift_start || '09:00'} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">{t.shiftEnd}</label>
+                    <input name="shift_end" type="time" defaultValue={editingEmployee?.shift_end || '18:00'} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-4">
+                  <button type="button" onClick={() => setShowAddEmployee(false)} className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold">{t.cancel}</button>
+                  <button type="submit" className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100">{t.save}</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Manual Punch Modal */}
+      <AnimatePresence>
+        {showManualPunch && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowManualPunch(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl"
+            >
+              <h3 className="text-2xl font-black text-emerald-700 mb-6">{t.manualPunch}</h3>
+              <form onSubmit={handleManualPunch} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.employees}</label>
+                  <select name="employee_id" required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500">
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">{t.date}</label>
+                    <input name="date" type="date" defaultValue={new Date().toISOString().split('T')[0]} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">{t.time}</label>
+                    <input name="time" type="time" defaultValue={new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.status}</label>
+                  <select name="punch_type" required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500">
+                    <option value="in">{t.checkIn}</option>
+                    <option value="out">{t.checkOut}</option>
+                  </select>
+                </div>
+                <div className="flex gap-3 pt-4">
+                  <button type="button" onClick={() => setShowManualPunch(false)} className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold">{t.cancel}</button>
+                  <button type="submit" className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100">{t.save}</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Attendance Modal */}
+      <AnimatePresence>
+        {editingAttendance && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setEditingAttendance(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl"
+            >
+              <h3 className="text-2xl font-black text-emerald-700 mb-6">{t.editAttendance}</h3>
+              <form onSubmit={handleSaveAttendance} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">{t.checkInTime}</label>
+                    <input name="check_in" type="time" defaultValue={editingAttendance.check_in || ''} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">{t.checkOutTime}</label>
+                    <input name="check_out" type="time" defaultValue={editingAttendance.check_out || ''} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.status}</label>
+                  <select name="status" defaultValue={editingAttendance.status} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500">
+                    <option value="present">{t.presentToday}</option>
+                    <option value="absent">{t.absentToday}</option>
+                    <option value="leave">{t.leaves}</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <input name="is_late" type="checkbox" defaultChecked={editingAttendance.is_late} className="w-5 h-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
+                  <label className="text-sm font-bold text-slate-700">{t.isLate}</label>
+                </div>
+                <div className="flex gap-3 pt-4">
+                  <button type="button" onClick={() => setEditingAttendance(null)} className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold">{t.cancel}</button>
+                  <button type="submit" className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100">{t.save}</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add Business Modal (Master Admin) */}
+      <AnimatePresence>
+        {showAddBusiness && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddBusiness(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl"
+            >
+              <h3 className="text-2xl font-black text-emerald-700 mb-6">{t.addBusiness}</h3>
+              <form onSubmit={handleAddBusiness} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.businessName}</label>
+                  <input name="name" required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.businessEmail}</label>
+                  <input name="email" type="email" required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.ownerName}</label>
+                  <input name="owner_name" required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">{t.ownerMobile}</label>
+                    <input name="owner_mobile" required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">{t.ownerPassword}</label>
+                    <input name="owner_password" type="password" required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">Plan</label>
+                    <select name="plan_name" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500">
+                      <option value="Starter">Starter</option>
+                      <option value="Growth">Growth</option>
+                      <option value="Pro">Pro</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">Limit</label>
+                    <input name="employee_limit" type="number" defaultValue={3} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-4">
+                  <button type="button" onClick={() => setShowAddBusiness(false)} className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold">{t.cancel}</button>
+                  <button type="submit" className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100">{t.save}</button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

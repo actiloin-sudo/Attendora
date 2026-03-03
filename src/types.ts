@@ -6,21 +6,27 @@ export interface Employee {
   business_id?: number;
   name: string;
   mobile: string;
+  email?: string;
   password?: string;
   role: UserRole;
   salary: number;
   shift_start: string;
   shift_end: string;
+  is_first_login?: number;
 }
 
 export interface Business {
   id: number;
   name: string;
+  email: string;
   owner_id: number;
   plan_name: string;
   employee_limit: number;
   activation_key: string;
   status: 'active' | 'inactive';
+  office_lat?: number;
+  office_lng?: number;
+  geofence_radius?: number;
   owner_name?: string;
   owner_mobile?: string;
   employee_count?: number;
@@ -38,6 +44,7 @@ export interface AttendanceRecord {
   latitude?: number;
   longitude?: number;
   selfie_url?: string;
+  distance_from_office?: number;
   hours?: number;
 }
 
@@ -161,7 +168,39 @@ export const translations = {
     upgrade: "Upgrade Now",
     active: "Active",
     inactive: "Inactive",
-    businessList: "Business List"
+    businessList: "Business List",
+    signup: "Sign Up",
+    alreadyHaveAccount: "Already have an account?",
+    noAccount: "Don't have an account?",
+    businessEmail: "Business Email",
+    productKey: "17-Digit Product Key",
+    changePin: "Change PIN",
+    newPin: "New PIN",
+    confirmPin: "Confirm PIN",
+    firstLoginPinChange: "Please change your PIN for security",
+    officeLocation: "Office Location",
+    setOfficeLocation: "Set Office Location",
+    geofenceRadius: "Geofence Radius (metres)",
+    distance: "Distance",
+    selfie: "Selfie",
+    map: "Map",
+    outOfRange: "Out of Range",
+    paymentSuccess: "Payment Successful! Your Product Key has been sent to your email.",
+    regenerateKey: "Regenerate Key",
+    uploadPaymentScreenshot: "Upload Payment Screenshot",
+    pendingApproval: "Pending Approval",
+    approveBusiness: "Approve Business",
+    rejectBusiness: "Reject Business",
+    addBusiness: "Add Business",
+    ownerName: "Owner Name",
+    ownerMobile: "Owner Mobile",
+    ownerPassword: "Owner Password",
+    editAttendance: "Edit Attendance",
+    checkInTime: "Check In Time",
+    checkOutTime: "Check Out Time",
+    isLate: "Is Late?",
+    paymentQR: "Scan to Pay (UPI)",
+    paymentInstructions: "Scan the QR code, pay the amount, and upload the screenshot of the transaction."
   },
   gu: {
     title: "Attendora",
@@ -265,6 +304,38 @@ export const translations = {
     upgrade: "અત્યારે અપગ્રેડ કરો",
     active: "સક્રિય",
     inactive: "નિષ્ક્રિય",
-    businessList: "વ્યવસાય યાદી"
+    businessList: "વ્યવસાય યાદી",
+    signup: "સાઇન અપ",
+    alreadyHaveAccount: "પહેલેથી જ એકાઉન્ટ છે?",
+    noAccount: "એકાઉન્ટ નથી?",
+    businessEmail: "વ્યવસાય ઇમેઇલ",
+    productKey: "17-અંકની પ્રોડક્ટ કી",
+    changePin: "પિન બદલો",
+    newPin: "નવો પિન",
+    confirmPin: "પિનની પુષ્ટિ કરો",
+    firstLoginPinChange: "સુરક્ષા માટે કૃપા કરીને તમારો પિન બદલો",
+    officeLocation: "ઓફિસ લોકેશન",
+    setOfficeLocation: "ઓફિસ લોકેશન સેટ કરો",
+    geofenceRadius: "જીઓફેન્સ ત્રિજ્યા (મીટર)",
+    distance: "અંતર",
+    selfie: "સેલ્ફી",
+    map: "નકશો",
+    outOfRange: "ઓફિસની બહાર",
+    paymentSuccess: "ચુકવણી સફળ! તમારી પ્રોડક્ટ કી તમારા ઇમેઇલ પર મોકલવામાં આવી છે.",
+    regenerateKey: "કી ફરીથી બનાવો",
+    uploadPaymentScreenshot: "ચુકવણીનો સ્ક્રીનશોટ અપલોડ કરો",
+    pendingApproval: "મંજૂરી બાકી છે",
+    approveBusiness: "વ્યવસાય મંજૂર કરો",
+    rejectBusiness: "વ્યવસાય નામંજૂર કરો",
+    addBusiness: "વ્યવસાય ઉમેરો",
+    ownerName: "માલિકનું નામ",
+    ownerMobile: "માલિકનો મોબાઇલ",
+    ownerPassword: "માલિકનો પાસવર્ડ",
+    editAttendance: "હાજરી સુધારો",
+    checkInTime: "આવવાનો સમય",
+    checkOutTime: "જવાનો સમય",
+    isLate: "મોડા છે?",
+    paymentQR: "ચુકવણી માટે સ્કેન કરો (UPI)",
+    paymentInstructions: "QR કોડ સ્કેન કરો, રકમ ચૂકવો અને વ્યવહારનો સ્ક્રીનશોટ અપલોડ કરો."
   }
 };
