@@ -171,8 +171,8 @@ export default function App() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!signupData.payment_screenshot) {
-      alert(t.selfieRequired); // Reusing for screenshot for now or add new translation
+    if (signupData.plan_name !== 'Starter' && !signupData.payment_screenshot) {
+      alert(t.uploadPaymentScreenshot);
       return;
     }
     try {
@@ -655,33 +655,34 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="md:col-span-2 p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
-                    <p className="text-xs font-black text-emerald-800 uppercase mb-3">{t.paymentQR}</p>
-                    <div className="flex flex-col md:flex-row gap-4 items-center">
-                      <div className="w-32 h-32 bg-white p-2 rounded-xl border border-emerald-200 flex items-center justify-center">
-                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=upi://pay?pa=actilo.in@gmail.com&pn=Attendora&am=99&cu=INR" alt="UPI QR" referrerPolicy="no-referrer" className="w-full h-full object-contain" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-[10px] font-bold text-emerald-700 leading-relaxed mb-3">
-                          {t.paymentInstructions}
-                        </p>
-                        <input 
-                          type="file" 
-                          accept="image/*"
-                          required
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onloadend = () => setSignupData({...signupData, payment_screenshot: reader.result as string});
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                          className="text-[10px] font-bold text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-emerald-600 file:text-white hover:file:bg-emerald-700"
-                        />
+                  {signupData.plan_name !== 'Starter' && (
+                    <div className="md:col-span-2 p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+                      <p className="text-xs font-black text-emerald-800 uppercase mb-3">{t.paymentQR}</p>
+                      <div className="flex flex-col md:flex-row gap-4 items-center">
+                        <div className="w-32 h-32 bg-white p-2 rounded-xl border border-emerald-200 flex items-center justify-center">
+                          <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=upi://pay?pa=actilo.in@gmail.com&pn=Attendora&am=99&cu=INR" alt="UPI QR" referrerPolicy="no-referrer" className="w-full h-full object-contain" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[10px] font-bold text-emerald-700 leading-relaxed mb-3">
+                            {t.paymentInstructions}
+                          </p>
+                          <input 
+                            type="file" 
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => setSignupData({...signupData, payment_screenshot: reader.result as string});
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                            className="text-[10px] font-bold text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-emerald-600 file:text-white hover:file:bg-emerald-700"
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="md:col-span-2 pt-4">
                     <button type="submit" className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-lg shadow-xl shadow-emerald-100">
@@ -693,44 +694,6 @@ export default function App() {
             </div>
           )}
         </AnimatePresence>
-
-        {showPinChange && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-emerald-900/80 backdrop-blur-md">
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl"
-            >
-              <h3 className="text-2xl font-black text-emerald-700 mb-2">{t.changePin}</h3>
-              <p className="text-slate-500 font-bold mb-6">{t.firstLoginPinChange}</p>
-              <form onSubmit={handlePinChange} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">{t.newPin}</label>
-                  <input 
-                    type="password" 
-                    required 
-                    value={newPinData.pin}
-                    onChange={e => setNewPinData({...newPinData, pin: e.target.value})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none" 
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase">{t.confirmPin}</label>
-                  <input 
-                    type="password" 
-                    required 
-                    value={newPinData.confirm}
-                    onChange={e => setNewPinData({...newPinData, confirm: e.target.value})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none" 
-                  />
-                </div>
-                <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-100 mt-4">
-                  {t.save}
-                </button>
-              </form>
-            </motion.div>
-          </div>
-        )}
       </div>
     );
   }
@@ -739,6 +702,46 @@ export default function App() {
     const myAttendance = todayAttendance.find(a => a.employee_id === user.id);
     return (
       <div className="min-h-screen bg-slate-50 p-4">
+        <AnimatePresence>
+          {showPinChange && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-emerald-900/80 backdrop-blur-md">
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl"
+              >
+                <h3 className="text-2xl font-black text-emerald-700 mb-2">{t.changePin}</h3>
+                <p className="text-slate-500 font-bold mb-6">{t.firstLoginPinChange}</p>
+                <form onSubmit={handlePinChange} className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">{t.newPin}</label>
+                    <input 
+                      type="password" 
+                      required 
+                      value={newPinData.pin}
+                      onChange={e => setNewPinData({...newPinData, pin: e.target.value})}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">{t.confirmPin}</label>
+                    <input 
+                      type="password" 
+                      required 
+                      value={newPinData.confirm}
+                      onChange={e => setNewPinData({...newPinData, confirm: e.target.value})}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none" 
+                    />
+                  </div>
+                  <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-100 mt-4">
+                    {t.save}
+                  </button>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
         <header className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-black text-emerald-700">{t.title}</h1>
@@ -949,6 +952,46 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 flex overflow-hidden">
+      <AnimatePresence>
+        {showPinChange && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-emerald-900/80 backdrop-blur-md">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl"
+            >
+              <h3 className="text-2xl font-black text-emerald-700 mb-2">{t.changePin}</h3>
+              <p className="text-slate-500 font-bold mb-6">{t.firstLoginPinChange}</p>
+              <form onSubmit={handlePinChange} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.newPin}</label>
+                  <input 
+                    type="password" 
+                    required 
+                    value={newPinData.pin}
+                    onChange={e => setNewPinData({...newPinData, pin: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none" 
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.confirmPin}</label>
+                  <input 
+                    type="password" 
+                    required 
+                    value={newPinData.confirm}
+                    onChange={e => setNewPinData({...newPinData, confirm: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none" 
+                  />
+                </div>
+                <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-100 mt-4">
+                  {t.save}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       {/* Sidebar / Desktop Nav */}
       <motion.aside 
         initial={false}
