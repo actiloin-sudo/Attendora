@@ -11,10 +11,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // PostgreSQL Pool Configuration
+const dbUrl = process.env.DATABASE_URL;
+
+if (!dbUrl || dbUrl.includes('YOUR-PASSWORD') || dbUrl === 'base') {
+  console.error("❌ CRITICAL: DATABASE_URL is missing or contains placeholders.");
+  console.error("👉 Please set a valid Supabase connection string in your environment variables.");
+}
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
+  connectionString: dbUrl,
+  ssl: dbUrl?.includes('localhost') ? false : {
     rejectUnauthorized: false
+  }
+});
+
+// Test connection on startup
+pool.query('SELECT NOW()').then(() => {
+  console.log("✅ Database connected successfully");
+}).catch(err => {
+  console.error("❌ Database connection failed:", err.message);
+  if (err.message.includes('getaddrinfo')) {
+    console.error("👉 This usually means your DATABASE_URL hostname is incorrect or your internet/DNS is blocking the connection.");
   }
 });
 

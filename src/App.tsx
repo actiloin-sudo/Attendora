@@ -48,6 +48,16 @@ import {
   UserRole
 } from './types';
 
+const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
+  <div className={`relative flex items-center justify-center ${className}`}>
+    <svg viewBox="0 0 100 100" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M50 5L10 85C10 85 30 95 50 85C70 95 90 85 90 85L50 5Z" fill="#10b981" />
+      <path d="M50 25L30 75C40 70 50 70 60 75L50 25Z" fill="white" fillOpacity="0.2" />
+      <path d="M45 40C45 40 48 60 40 80H50C58 60 55 40 55 40H45Z" fill="white" />
+    </svg>
+  </div>
+);
+
 export default function App() {
   const [lang, setLang] = useState<Language>('en');
   const [user, setUser] = useState<Employee | null>(null);
@@ -580,6 +590,7 @@ export default function App() {
           className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl"
         >
           <div className="text-center mb-8">
+            <Logo className="w-20 h-20 mx-auto mb-4" />
             <h1 className="text-3xl font-black text-emerald-700 mb-2">{t.title}</h1>
             <p className="text-slate-500 font-bold">{t.welcome}</p>
           </div>
@@ -791,9 +802,12 @@ export default function App() {
           )}
         </AnimatePresence>
         <header className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-black text-emerald-700">{t.title}</h1>
-            <p className="font-bold text-slate-500">{user.name}</p>
+          <div className="flex items-center gap-4">
+            <Logo className="w-12 h-12" />
+            <div>
+              <h1 className="text-2xl font-black text-emerald-700">{t.title}</h1>
+              <p className="font-bold text-slate-500">{user.name}</p>
+            </div>
           </div>
           <button onClick={() => setUser(null)} className="p-3 bg-white rounded-2xl text-red-600 shadow-sm">
             <LogOut size={24} />
@@ -1099,7 +1113,10 @@ export default function App() {
       >
         <div className="w-72 p-6 flex flex-col h-full">
           <div className="flex items-center justify-between mb-8">
-            <h1 className="text-2xl font-black text-emerald-700 tracking-tight">{t.title}</h1>
+            <div className="flex items-center gap-3">
+              <Logo className="w-8 h-8" />
+              <h1 className="text-2xl font-black text-emerald-700 tracking-tight">{t.title}</h1>
+            </div>
             <button onClick={() => setIsSidebarOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
               <X size={24} />
             </button>
