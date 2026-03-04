@@ -71,7 +71,27 @@ async function startServer() {
   // Request logging for API
   app.use("/api/*", (req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
+    
+    // Check if database is configured
+    if (!dbUrl || dbUrl.includes('YOUR-PASSWORD') || dbUrl === 'base') {
+      return res.status(500).json({ 
+        error: "Database Not Configured", 
+        details: "The DATABASE_URL environment variable is missing or incorrect. Please set your Supabase connection string in Vercel/AI Studio settings." 
+      });
+    }
     next();
+  });
+
+  // Global error handler for database issues
+  app.use(async (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err.message && err.message.includes('getaddrinfo')) {
+      console.error("❌ Database DNS Error:", err.message);
+      return res.status(500).json({
+        error: "Database Connection Error",
+        details: "The server could not find your database host. Please check if your DATABASE_URL is correct."
+      });
+    }
+    next(err);
   });
 
   app.get("/health", (req, res) => res.send("OK"));
@@ -131,7 +151,13 @@ async function startServer() {
       res.json(user);
     } catch (err: any) {
       console.error("Login route error:", err);
-      res.status(500).json({ error: "Internal server error during login" });
+      if (err.message && err.message.includes('getaddrinfo')) {
+        return res.status(500).json({ 
+          error: "Database Connection Error", 
+          details: "Could not resolve database host. Please check your DATABASE_URL environment variable." 
+        });
+      }
+      res.status(500).json({ error: "Internal server error during login", details: err.message });
     }
   });
 
