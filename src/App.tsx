@@ -29,7 +29,11 @@ import {
   Settings,
   TrendingUp,
   Share2,
-  Database
+  Database,
+  Palmtree,
+  CalendarDays as CalendarIcon,
+  ChevronLeft as PrevIcon,
+  ChevronRight as NextIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
@@ -47,9 +51,11 @@ import {
 export default function App() {
   const [lang, setLang] = useState<Language>('en');
   const [user, setUser] = useState<Employee | null>(null);
-  const [loginData, setLoginData] = useState({ mobile: '', password: '' });
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'attendance' | 'reports' | 'leaves' | 'settings' | 'master'>('dashboard');
+  const [loginData, setLoginData] = useState({ mobile: '', password: '', productKey: '', email: '' });
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'attendance' | 'reports' | 'leaves' | 'settings' | 'master' | 'holidays' | 'calendar'>('dashboard');
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [holidays, setHolidays] = useState<any[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [masterStats, setMasterStats] = useState<any>(null);
   const [businesses, setBusinesses] = useState<any[]>([]);
@@ -74,6 +80,7 @@ export default function App() {
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [editingAttendance, setEditingAttendance] = useState<AttendanceRecord | null>(null);
   const [showAddBusiness, setShowAddBusiness] = useState(false);
+  const [showAddHoliday, setShowAddHoliday] = useState(false);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [myLeaves, setMyLeaves] = useState<LeaveRequest[]>([]);
   const [lateAlert, setLateAlert] = useState(false);
@@ -93,7 +100,7 @@ export default function App() {
     if (user) {
       fetchData();
     }
-  }, [activeTab, user]);
+  }, [activeTab, user, selectedEmployeeId, historyFilter.month, historyFilter.year]);
 
   const fetchData = async () => {
     if (!user) return;
@@ -109,13 +116,14 @@ export default function App() {
       }
 
       const bId = user.business_id;
-      const [empRes, statsRes, attRes, leaveRes, settingsRes, bizInfoRes] = await Promise.all([
+      const [empRes, statsRes, attRes, leaveRes, settingsRes, bizInfoRes, holidayRes] = await Promise.all([
         fetch(`/api/employees?business_id=${bId}`),
         fetch(`/api/stats?business_id=${bId}`),
         fetch(`/api/attendance/today?business_id=${bId}`),
         fetch(`/api/leaves?business_id=${bId}${user?.role === 'employee' ? `&employee_id=${user.id}` : ''}`),
         fetch(`/api/settings?business_id=${bId}`),
-        fetch(`/api/business/info/${bId}`)
+        fetch(`/api/business/info/${bId}`),
+        fetch(`/api/holidays?business_id=${bId}`)
       ]);
       
       setEmployees(await empRes.json());
@@ -123,6 +131,7 @@ export default function App() {
       setTodayAttendance(await attRes.json());
       setSettings(await settingsRes.json());
       setBusinessInfo(await bizInfoRes.json());
+      setHolidays(await holidayRes.json());
       
       const leaveData = await leaveRes.json();
       if (user?.role === 'employee') {
@@ -132,8 +141,9 @@ export default function App() {
       }
 
       // Fetch history
-      if (user?.role === 'employee' || activeTab === 'attendance') {
-        const histRes = await fetch(`/api/attendance/report?business_id=${bId}&year=${historyFilter.year}&month=${historyFilter.month}${user?.role === 'employee' ? `&employee_id=${user.id}` : ''}`);
+      if (user?.role === 'employee' || activeTab === 'attendance' || activeTab === 'calendar') {
+        const targetEmpId = user?.role === 'employee' ? user.id : (activeTab === 'calendar' ? selectedEmployeeId : '');
+        const histRes = await fetch(`/api/attendance/report?business_id=${bId}&year=${historyFilter.year}&month=${historyFilter.month}${targetEmpId ? `&employee_id=${targetEmpId}` : ''}`);
         setAttendanceHistory(await histRes.json());
       }
     } catch (error) {
@@ -144,28 +154,38 @@ export default function App() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      console.log("Attempting login with:", { ...loginData, password: '***' });
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginData)
       });
+      
+      const contentType = res.headers.get("content-type");
+      if (!contentType || contentType.indexOf("application/json") === -1) {
+        const text = await res.text();
+        console.error("Non-JSON response received:", text);
+        alert("Server Error: Received non-JSON response. This usually means the API route is not working or being redirected. Please check if you are using the correct URL.");
+        return;
+      }
+
+      const data = await res.json();
       if (res.ok) {
-        const userData = await res.json();
-        setUser(userData);
-        if (userData.is_first_login) {
+        setUser(data);
+        if (data.is_first_login) {
           setShowPinChange(true);
         }
-        if (userData.role === 'master') {
+        if (data.role === 'master') {
           setActiveTab('master');
         } else {
           setActiveTab('dashboard');
         }
       } else {
-        const err = await res.json();
-        alert(err.error || "Invalid credentials");
+        alert(data.error || "Invalid credentials");
       }
     } catch (error) {
       console.error("Login error:", error);
+      alert("Network Error: Could not connect to the server. Please check your internet connection.");
     }
   };
 
@@ -290,6 +310,19 @@ export default function App() {
   };
 
   const handleCheckIn = async (employeeId: number, shiftStart: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    const isHoliday = holidays.find(h => h.date === today);
+    if (isHoliday) {
+      alert(`Today is a holiday: ${isHoliday.reason}. Attendance cannot be marked.`);
+      return;
+    }
+
+    const emp = employees.find(e => e.id === employeeId);
+    if (emp && emp.role === 'employee' && !emp.is_approved) {
+      alert("Your account is not approved by employer.");
+      return;
+    }
+
     if (!selfie || !location) {
       alert(t.gpsRequired + " & " + t.selfieRequired);
       return;
@@ -374,6 +407,13 @@ export default function App() {
   };
 
   const handleCheckOut = async (employeeId: number) => {
+    const today = new Date().toISOString().split('T')[0];
+    const isHoliday = holidays.find(h => h.date === today);
+    if (isHoliday) {
+      alert(`Today is a holiday: ${isHoliday.reason}. Attendance cannot be marked.`);
+      return;
+    }
+
     const now = new Date();
     const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -452,6 +492,14 @@ export default function App() {
   const handleManualPunch = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const date = formData.get('date') as string;
+    
+    const isHoliday = holidays.find(h => h.date === date);
+    if (isHoliday) {
+      alert(`Selected date is a holiday: ${isHoliday.reason}. Attendance cannot be marked.`);
+      return;
+    }
+
     const type = formData.get('punch_type');
     const data = {
       employee_id: parseInt(formData.get('employee_id') as string),
@@ -888,6 +936,50 @@ export default function App() {
           </div>
         )}
 
+        {showAddHoliday && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowAddHoliday(false)} />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-2xl font-black text-slate-800">{t.addHoliday}</h3>
+                <button onClick={() => setShowAddHoliday(false)} className="p-2 hover:bg-slate-100 rounded-full"><X size={24}/></button>
+              </div>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const date = formData.get('date') as string;
+                const reason = formData.get('reason') as string;
+                if (date && reason) {
+                  await fetch('/api/holidays', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ business_id: user?.business_id, date, reason })
+                  });
+                  setShowAddHoliday(false);
+                  fetchData();
+                }
+              }} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.date}</label>
+                  <input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">{t.holidayReason}</label>
+                  <input type="text" name="reason" required placeholder="e.g. Diwali" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none" />
+                </div>
+                <div className="flex gap-3 pt-4">
+                  <button type="button" onClick={() => setShowAddHoliday(false)} className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold">{t.cancel}</button>
+                  <button type="submit" className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100">{t.save}</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
         {showLeaveModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowLeaveModal(false)} />
@@ -1030,6 +1122,8 @@ export default function App() {
                   )}
                 </div>
                 <NavItem id="reports" icon={FileText} label={t.reports} />
+                <NavItem id="calendar" icon={CalendarIcon} label={t.calendar} />
+                <NavItem id="holidays" icon={Palmtree} label={t.holidays} />
                 {user.role === 'owner' && <NavItem id="settings" icon={Settings} label={t.settings} />}
               </>
             )}
@@ -1104,7 +1198,7 @@ export default function App() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-6"
             >
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 flex-wrap">
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
                   <p className="text-slate-500 text-sm font-medium uppercase tracking-wider mb-1">{t.totalEmployees}</p>
                   <h2 className="text-4xl font-black text-slate-900">{stats?.totalEmployees || 0}</h2>
@@ -1234,6 +1328,23 @@ export default function App() {
                         <p className="text-xs text-emerald-600 font-bold">PW: {emp.password || '123456'}</p>
                       </div>
                       <div className="flex gap-2">
+                        {user.role === 'owner' && !emp.is_approved && (
+                          <button 
+                            onClick={async () => {
+                              await fetch(`/api/employees/${emp.id}/approve`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ status: true })
+                              });
+                              fetchData();
+                            }}
+                            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                            title="Approve Employee"
+                          >
+                            <CheckCircle2 size={20} />
+                            Approve
+                          </button>
+                        )}
                         <button 
                           onClick={() => { setEditingEmployee(emp); setShowAddEmployee(true); }}
                           className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
@@ -1309,7 +1420,7 @@ export default function App() {
                   <button onClick={fetchData} className="bg-slate-800 text-white px-6 py-2 rounded-xl font-bold">Filter</button>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div className="table-container">
                   <table className="w-full text-left">
                     <thead>
                       <tr className="text-slate-400 text-xs uppercase tracking-wider">
@@ -1443,7 +1554,7 @@ export default function App() {
                   </select>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div className="table-container">
                   <table className="w-full text-left">
                     <thead>
                       <tr className="text-slate-400 text-sm uppercase tracking-wider">
@@ -1671,7 +1782,7 @@ export default function App() {
                 <div className="p-8 border-b border-slate-100">
                   <h3 className="text-xl font-black text-slate-900">{t.businessList}</h3>
                 </div>
-                <div className="overflow-x-auto">
+                <div className="table-container">
                   <table className="w-full text-left">
                     <thead className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                       <tr>
@@ -1756,6 +1867,146 @@ export default function App() {
               </div>
             </motion.div>
           )}
+            {activeTab === 'holidays' && (
+              <motion.div
+                key="holidays"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex justify-between items-center">
+                  <h3 className="text-2xl font-black text-slate-900">{t.holidays}</h3>
+                  {user.role === 'owner' && (
+                    <button 
+                      onClick={() => setShowAddHoliday(true)}
+                      className="bg-emerald-600 text-white px-6 py-3 rounded-2xl font-black flex items-center gap-2 shadow-xl shadow-emerald-100"
+                    >
+                      <Plus size={20} />
+                      {t.addHoliday}
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {holidays.map(h => (
+                    <div key={h.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex justify-between items-center">
+                      <div>
+                        <p className="text-lg font-black text-slate-900">{h.date}</p>
+                        <p className="text-slate-500 font-bold">{h.reason}</p>
+                      </div>
+                      {user.role === 'owner' && (
+                        <button 
+                          onClick={() => {
+                            if (confirm(t.confirmDeleteHoliday)) {
+                              fetch(`/api/holidays/${h.id}`, { method: 'DELETE' }).then(() => fetchData());
+                            }
+                          }}
+                          className="p-3 text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {holidays.length === 0 && (
+                    <div className="col-span-full py-20 text-center">
+                      <Palmtree size={64} className="mx-auto text-slate-200 mb-4" />
+                      <p className="text-slate-400 font-bold">{t.noRecords}</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'calendar' && (
+              <motion.div
+                key="calendar"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100"
+              >
+                <div className="flex justify-between items-center mb-8">
+                  <h3 className="text-2xl font-black text-slate-900">{t.calendar}</h3>
+                  <div className="flex flex-wrap items-center gap-4">
+                    {user.role === 'owner' && (
+                      <select 
+                        value={selectedEmployeeId || ''}
+                        onChange={(e) => {
+                          const val = e.target.value ? Number(e.target.value) : null;
+                          setSelectedEmployeeId(val);
+                        }}
+                        className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 font-bold outline-none text-sm"
+                      >
+                        <option value="">All Employees</option>
+                        {employees.map(e => (
+                          <option key={e.id} value={e.id}>{e.name}</option>
+                        ))}
+                      </select>
+                    )}
+                    <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        const prev = new Date(Number(historyFilter.year), Number(historyFilter.month) - 2, 1);
+                        setHistoryFilter({ month: String(prev.getMonth() + 1).padStart(2, '0'), year: String(prev.getFullYear()) });
+                      }}
+                      className="p-3 hover:bg-slate-100 rounded-xl"
+                    >
+                      <PrevIcon size={24} />
+                    </button>
+                    <span className="text-lg font-black text-emerald-700">
+                      {new Date(Number(historyFilter.year), Number(historyFilter.month) - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}
+                    </span>
+                    <button 
+                      onClick={() => {
+                        const next = new Date(Number(historyFilter.year), Number(historyFilter.month), 1);
+                        setHistoryFilter({ month: String(next.getMonth() + 1).padStart(2, '0'), year: String(next.getFullYear()) });
+                      }}
+                      className="p-3 hover:bg-slate-100 rounded-xl"
+                    >
+                      <NextIcon size={24} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+                <div className="grid grid-cols-7 gap-2 mb-2">
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                    <div key={d} className="text-center text-xs font-black text-slate-400 uppercase py-2">{d}</div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-7 gap-2">
+                  {Array.from({ length: new Date(Number(historyFilter.year), Number(historyFilter.month) - 1, 1).getDay() }).map((_, i) => (
+                    <div key={`empty-${i}`} className="aspect-square"></div>
+                  ))}
+                  {Array.from({ length: new Date(Number(historyFilter.year), Number(historyFilter.month), 0).getDate() }).map((_, i) => {
+                    const day = i + 1;
+                    const dateStr = `${historyFilter.year}-${historyFilter.month}-${String(day).padStart(2, '0')}`;
+                    const record = attendanceHistory.find(r => r.date === dateStr);
+                    const holiday = holidays.find(h => h.date === dateStr);
+                    
+                    return (
+                      <div 
+                        key={day} 
+                        className={`aspect-square rounded-2xl border flex flex-col items-center justify-center relative transition-all ${
+                          holiday ? 'bg-amber-50 border-amber-200' :
+                          record?.status === 'present' ? 'bg-emerald-50 border-emerald-200' :
+                          record?.status === 'absent' ? 'bg-red-50 border-red-200' :
+                          record?.status === 'leave' ? 'bg-blue-50 border-blue-200' :
+                          'bg-slate-50 border-slate-100'
+                        }`}
+                      >
+                        <span className="text-sm font-black">{day}</span>
+                        {holiday && <span className="text-[8px] font-bold text-amber-600 truncate w-full text-center px-1">{holiday.reason}</span>}
+                        {record?.check_in && <span className="text-[8px] font-bold text-emerald-600">{record.check_in}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
       </main>

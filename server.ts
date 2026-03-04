@@ -3,7 +3,8 @@ import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
-import * as bcrypt from "bcryptjs";
+import bcrypt from "bcryptjs";
+import cors from "cors";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -102,6 +103,14 @@ async function startServer() {
         FOREIGN KEY (business_id) REFERENCES businesses(id)
       );
 
+      CREATE TABLE IF NOT EXISTS holidays (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        business_id INTEGER,
+        date TEXT NOT NULL,
+        reason TEXT,
+        FOREIGN KEY (business_id) REFERENCES businesses(id)
+      );
+
       CREATE TABLE IF NOT EXISTS settings (
         business_id INTEGER,
         key TEXT,
@@ -138,6 +147,11 @@ async function startServer() {
     const employeeCols = db.prepare("PRAGMA table_info(employees)").all();
     if (!employeeCols.find((c: any) => c.name === 'email')) {
       db.exec("ALTER TABLE employees ADD COLUMN email TEXT UNIQUE");
+    }
+    if (!employeeCols.find((c: any) => c.name === 'is_approved')) {
+      db.exec("ALTER TABLE employees ADD COLUMN is_approved INTEGER DEFAULT 0");
+      // Set existing owners and master to approved
+      db.exec("UPDATE employees SET is_approved = 1 WHERE role IN ('owner', 'master')");
     }
     if (!employeeCols.find((c: any) => c.name === 'is_first_login')) {
       db.exec("ALTER TABLE employees ADD COLUMN is_first_login INTEGER DEFAULT 1");
@@ -182,36 +196,73 @@ async function startServer() {
   }
 
   const app = express();
-  app.use(express.json());
+  app.use(cors());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+  
   const PORT = 3000;
+
+  // Request logging for API
+  app.use("/api/*", (req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
+    next();
+  });
 
   app.get("/health", (req, res) => res.send("OK"));
 
   // Auth
   app.post("/api/login", (req, res) => {
     const { mobile, email, password, productKey } = req.body;
+    console.log(`Login attempt: mobile=${mobile}, email=${email}, hasProductKey=${!!productKey}`);
     
-    let user;
-    if (productKey) {
-      // Owner login with Email + Mobile + Product Key
-      const biz = db.prepare("SELECT * FROM businesses WHERE email = ? AND activation_key = ?").get(email, productKey);
-      if (!biz) return res.status(401).json({ error: "Invalid business credentials or product key" });
-      if (biz.status !== 'active') return res.status(403).json({ error: "Business account is pending approval or inactive" });
-      
-      user = db.prepare("SELECT * FROM employees WHERE mobile = ? AND business_id = ? AND role = 'owner'").get(mobile, biz.id);
-    } else {
-      // Regular login with Mobile or Email
-      user = db.prepare("SELECT * FROM employees WHERE (mobile = ? OR email = ?)").get(mobile || email, mobile || email);
-      if (user && user.role !== 'master' && user.business_id) {
-        const biz = db.prepare("SELECT status FROM businesses WHERE id = ?").get(user.business_id);
-        if (biz && biz.status !== 'active') return res.status(403).json({ error: "Business account is pending approval or inactive" });
-      }
-    }
+    try {
+      let user;
+      if (productKey) {
+        // Owner login with Email + Mobile + Product Key
+        const biz = db.prepare("SELECT * FROM businesses WHERE email = ? AND activation_key = ?").get(email, productKey);
+        if (!biz) {
+          console.log("Login failed: Business not found for email/key");
+          return res.status(404).json({ error: "You are not registered. Please register first." });
+        }
+        if (biz.status !== 'active') {
+          console.log(`Login failed: Business ${biz.id} is ${biz.status}`);
+          return res.status(403).json({ error: "Your account is not approved yet. Please wait for admin approval." });
+        }
+        
+        user = db.prepare("SELECT * FROM employees WHERE mobile = ? AND business_id = ? AND role = 'owner'").get(mobile, biz.id);
+      } else {
+        // Regular login with Mobile or Email
+        user = db.prepare("SELECT * FROM employees WHERE (mobile = ? OR email = ?)").get(mobile || email, mobile || email);
+        
+        if (!user) {
+          return res.status(404).json({ error: "You are not registered. Please register first." });
+        }
 
-    if (!user || !bcrypt.compareSync(password, user.password)) {
-      return res.status(401).json({ error: "Invalid credentials" });
+        if (user.role !== 'master' && user.business_id) {
+          const biz = db.prepare("SELECT status FROM businesses WHERE id = ?").get(user.business_id);
+          if (biz && biz.status !== 'active') {
+            console.log(`Login failed: Business ${user.business_id} is ${biz.status}`);
+            return res.status(403).json({ error: "Your account is not approved yet. Please wait for admin approval." });
+          }
+
+          // Check employee approval
+          if (user.role === 'employee' && !user.is_approved) {
+            return res.status(403).json({ error: "Your account is not approved by employer." });
+          }
+        }
+      }
+
+      if (!user || !bcrypt.compareSync(password, user.password)) {
+        console.log(`Login failed: User not found or password mismatch for ${mobile || email}`);
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+      
+      console.log(`Login success: ${user.name} (${user.role})`);
+      res.json(user);
+    } catch (err: any) {
+      console.error("Login route error:", err);
+      res.status(500).json({ error: "Internal server error during login" });
     }
-    res.json(user);
   });
 
   app.post("/api/change-password", (req, res) => {
@@ -240,7 +291,7 @@ async function startServer() {
         
         // Simulate Payment Record
         db.prepare("INSERT INTO payments (business_id, amount, plan_name, transaction_id, status) VALUES (?, ?, ?, ?, 'pending')")
-          .run(bizId, plan_name === 'Growth' ? 99 : (plan_name === 'Pro' ? 199 : 0), plan_name, 'TXN' + Date.now(), 'pending');
+          .run(bizId, plan_name === 'Growth' ? 99 : (plan_name === 'Pro' ? 199 : 0), plan_name, 'TXN' + Date.now());
         
         res.json({ success: true, productKey });
       })();
@@ -369,6 +420,12 @@ async function startServer() {
     params.push(req.params.id);
     
     db.prepare(query).run(...params);
+    res.json({ success: true });
+  });
+
+  app.post("/api/employees/:id/approve", (req, res) => {
+    const { status } = req.body;
+    db.prepare("UPDATE employees SET is_approved = ? WHERE id = ?").run(status ? 1 : 0, req.params.id);
     res.json({ success: true });
   });
 
@@ -506,6 +563,32 @@ async function startServer() {
   });
 
   app.get("/api/backup", (req, res) => res.download(path.join(__dirname, "attendance.db")));
+
+  app.get("/api/holidays", (req, res) => {
+    const { business_id } = req.query;
+    const holidays = db.prepare("SELECT * FROM holidays WHERE business_id = ? ORDER BY date DESC").all(business_id);
+    res.json(holidays);
+  });
+
+  app.post("/api/holidays", (req, res) => {
+    const { business_id, date, reason } = req.body;
+    db.prepare("INSERT INTO holidays (business_id, date, reason) VALUES (?, ?, ?)").run(business_id, date, reason);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/holidays/:id", (req, res) => {
+    db.prepare("DELETE FROM holidays WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  // API 404 Handler - MUST be before Vite/Static middleware
+  app.use("/api/*", (req, res) => {
+    res.status(404).json({ 
+      error: "API Route Not Found", 
+      method: req.method, 
+      path: req.originalUrl 
+    });
+  });
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });

@@ -13,6 +13,7 @@ export interface Employee {
   shift_start: string;
   shift_end: string;
   is_first_login?: number;
+  is_approved?: number;
 }
 
 export interface Business {
@@ -98,6 +99,12 @@ export const translations = {
     salaryReport: "Salary Report",
     calculateSalary: "Calculate Salary",
     payableSalary: "Payable Salary",
+    holidays: "Holidays",
+    markHoliday: "Mark Holiday",
+    calendar: "Calendar",
+    holidayReason: "Holiday Reason",
+    addHoliday: "Add Holiday",
+    confirmDeleteHoliday: "Are you sure you want to delete this holiday?",
     leaveRequests: "Leave Requests",
     approve: "Approve",
     reject: "Reject",
@@ -234,6 +241,12 @@ export const translations = {
     salaryReport: "પગાર રિપોર્ટ",
     calculateSalary: "પગાર ગણતરી",
     payableSalary: "ચૂકવવાપાત્ર પગાર",
+    holidays: "રજાઓ (તહેવાર)",
+    markHoliday: "રજા જાહેર કરો",
+    calendar: "કેલેન્ડર",
+    holidayReason: "રજાનું કારણ",
+    addHoliday: "રજા ઉમેરો",
+    confirmDeleteHoliday: "શું તમે ખરેખર આ રજા કાઢી નાખવા માંગો છો?",
     leaveRequests: "રજાની વિનંતીઓ",
     approve: "મંજૂર કરો",
     reject: "નામંજૂર કરો",

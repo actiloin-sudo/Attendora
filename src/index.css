@@ -7,6 +7,25 @@
 
 @layer base {
   body {
-    @apply antialiased;
+    @apply antialiased bg-slate-50 text-slate-900;
   }
+}
+
+@layer utilities {
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Custom styles for mobile tables */
+.table-container {
+  @apply overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0;
+}
+
+.table-container table {
+  @apply min-w-[600px] sm:min-w-full;
 }
