@@ -6,6 +6,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import bcrypt from "bcryptjs";
 import cors from "cors";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,9 +16,10 @@ const __dirname = path.dirname(__filename);
 // PostgreSQL Pool Configuration
 const dbUrl = process.env.DATABASE_URL;
 
-if (!dbUrl || dbUrl.includes('YOUR-PASSWORD') || dbUrl === 'base') {
-  console.error("❌ CRITICAL: DATABASE_URL is missing or contains placeholders.");
-  console.error("👉 Please set a valid Supabase connection string in your environment variables.");
+if (!dbUrl || dbUrl.includes('YOUR-PASSWORD') || dbUrl === 'base' || dbUrl.length < 20) {
+  console.error("❌ CRITICAL: DATABASE_URL is missing, incorrect, or contains placeholders.");
+  console.error("👉 Current Value:", dbUrl);
+  console.error("👉 Please set a valid Supabase connection string (URI) in your environment variables.");
 }
 
 const pool = new Pool({
@@ -73,10 +77,10 @@ async function startServer() {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
     
     // Check if database is configured
-    if (!dbUrl || dbUrl.includes('YOUR-PASSWORD') || dbUrl === 'base') {
+    if (!dbUrl || dbUrl.includes('YOUR-PASSWORD') || dbUrl === 'base' || dbUrl.length < 20) {
       return res.status(500).json({ 
-        error: "Database Not Configured", 
-        details: "The DATABASE_URL environment variable is missing or incorrect. Please set your Supabase connection string in Vercel/AI Studio settings." 
+        error: "Database Not Configured Correctly", 
+        details: `Your DATABASE_URL is set to "${dbUrl}". This is not a valid Supabase connection string. Please update it in your Vercel/AI Studio settings with the real URI from Supabase.` 
       });
     }
     next();
