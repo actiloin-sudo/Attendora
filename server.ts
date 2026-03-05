@@ -55,6 +55,22 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * c; // in metres
 }
 
+async function seedMasterAdmin() {
+  try {
+    const res = await pool.query("SELECT * FROM employees WHERE mobile = '9999999999'");
+    if (res.rows.length === 0) {
+      const hashedPassword = bcrypt.hashSync('masteradmin', 10);
+      await pool.query(
+        "INSERT INTO employees (name, mobile, email, password, role, salary, shift_start, shift_end, is_first_login, is_approved) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        ['Master Admin', '9999999999', 'admin@attendora.com', hashedPassword, 'master', 0, '00:00', '00:00', 0, 1]
+      );
+      console.log("✅ Master Admin seeded successfully (Password: masteradmin)");
+    }
+  } catch (err) {
+    console.error("❌ Error seeding Master Admin:", err);
+  }
+}
+
 function generateProductKey() {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   let key = "";
@@ -99,6 +115,9 @@ async function startServer() {
   });
 
   app.get("/health", (req, res) => res.send("OK"));
+
+  // Seed Master Admin
+  await seedMasterAdmin();
 
   // Auth
   app.post("/api/login", async (req, res) => {
